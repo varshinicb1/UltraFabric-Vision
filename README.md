@@ -70,4 +70,4 @@ The frontend explicitly visualizes the internal state of the neural networks:
 
 ---
 **RV College of Engineering - Interdisciplinary Project (EC367P)**
-*Contributors: Varshini C B, Sanjana T M, Ayush, Navideepa K Gurupad*
+*Contributors: Varshini C B, Navi Deepak Gurupad, Ayush, Sanjana T M*

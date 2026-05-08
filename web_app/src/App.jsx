@@ -394,9 +394,9 @@ function App() {
             <div className="card-head">Project Team</div>
             <div className="team-list">
               <div className="student">VARSHINI C B <span>1RV23EE056</span></div>
-              <div className="student">SANJANA T M <span>1RV23EC131</span></div>
-              <div className="student">AYUSH <span>1RV24CD400</span></div>
               <div className="student">NAVI DEEPAK GURUPAD <span>1RV24EC410</span></div>
+              <div className="student">AYUSH <span>1RV24CD400</span></div>
+              <div className="student">SANJANA T M <span>1RV23EC131</span></div>
             </div>
             <div className="college-footer">
               RV College of Engineering® • Bangalore<br/>
