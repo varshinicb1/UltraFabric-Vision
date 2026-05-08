@@ -4,7 +4,8 @@
 
 UltraFabric-Vision is an industrial-grade, AI-powered computer vision suite engineered for high-fidelity, real-time cloth defect detection. Developed as an interdisciplinary project (RV College of Engineering), this platform leverages state-of-the-art transformer architectures to identify surface anomalies, weaving defects, and structural irregularities in textiles at high throughput.
 
-<img width="1851" height="871" alt="image" src="https://github.com/user-attachments/assets/484b8238-b282-48f9-bf09-70136d2a3070" />
+<img width="1853" height="837" alt="image" src="https://github.com/user-attachments/assets/30442390-a7c7-41de-97b6-36ae0f401fd5" />
+
 
 ## 🧠 Core Neural Architecture
 
