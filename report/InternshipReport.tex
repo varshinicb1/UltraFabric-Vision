@@ -1,0 +1,159 @@
+\documentclass[12pt,oneside,a4paper]{book} % This style for A4 format.
+
+\input{./AuxFiles/Packages}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Document settings
+\title{Design and Analysis of Oversampling ADC}
+\subCode{XX367P}
+\Department[ECE]{Electronics and Communication Engineering}
+\academicYear{2025-26}
+
+%%%%%%%%%%%%%%%%%%%%% Internship report %%%%%%%%%%%%%%%%%%%%%%%
+\InternProject
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Student Details%%%
+\stuNameA{P Narashimaraja}
+\stuUSNA{1RV22EC005}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Guide Related commands
+%% Internal Guide %%
+% Have to give both short form and long of Department Name
+\guideNameA{Mr. Ramavenkateshwaran}
+\guideDesignationA{Assistant Professor}
+\guideDeptA[ECE]{Electronics and Communication Engineering}
+\guideOrgA{RV College of Engineering}
+
+% Internship co-ordinators (for COE as well as Internship company Manager or Supervisor)
+\guideNameB{Mr. Nikhil BG}
+\guideDesignationB{Technologist Analog-RF}
+\guideOrgB{Signalchip Innovations Pvt. Ltd.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Esteem members related commands
+%% Pannel Members %%
+\panelMemberNameA{Dr. Kariyappa}
+\panelMemberDesigA{Professor}
+\panelMemberDeptA[ECE]{Electronics and Communication Engineering}
+
+% Added Ver 3.9
+%% Departmental Internship co-ordinator details (internal to RVCE)
+\internCoOrdNameA{Prof. P Narashimaraja}
+\internCoOrdDesigA{Assistant Professor}
+\internCoOrdDeptA[ECE]{Electronics and Communication Engineering}
+
+%%%%%%%%%%%%%%%%% Esteemed Members %%%%%%%%%%%%%%%%%%
+\HOD{Dr. Ravish Aradhya}
+\Principal{Dr. K. N. Subramanya}
+% For IDP only
+\DeanAcademics{Dr. M.V. Renukadevi}
+\VicePrincipal{Dr. Geetha K S}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%  QRL %%%%%%%%%%%%%%%%%%%%%%%%%%
+\QRurl{}
+%\QRurl{https://drive.google.com/open?id=1jm-POmuq-ZZ1tT5m-xAdCDRnwvLZH8q-}
+
+
+%%%%%%%%%%%%%%%%%% Glossaries & Acronyms %%%%%%%%%%%%%%%%%%
+\newglossary[sym]{symbolList}{sym1}{sym2}{List of Symbols}
+\makeglossaries
+% Acronyms
+\loadglsentries{./AuxFiles/Glossaries}
+\renewcommand{\glspostdescription}{}% To remove dot at the end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%% Bibliography %%%%%%%%%%%%%%%%%%%%%
+\usepackage[backend=bibtex,style=ieee]{biblatex}
+% If backend is set to bibtex, then configure texmaker Bi(La)Tex with "bibtex %"
+\addbibresource{./AuxFiles/ProjectBib.bib}%Add bib file with extention
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%WaterMark%%%%%%%%%%%%%%%%%%%%%
+%% Use it only after Biblatex
+%% Uncomment the following lines for watermarking and run it more than 2 times for proper alignment
+\usepackage{background}
+\backgroundsetup{scale=1, angle=0, firstpage = false, opacity=0.5, contents={
+\begin{tikzpicture}[remember picture, overlay]
+\node at ([yshift=0pt, xshift=0pt]current page.center){\includegraphics[width=0.6\textwidth]{Figures/RVlogoVecW}};
+\end{tikzpicture}
+}}
+
+\begin{document}
+\NoBgThispage% Don't remove this command, even if you want logo on the first page.	
+\maketitle
+%\pagestyle{empty}
+\newpage
+\ifDrf
+% Remove Certificate, Declaration, Acknowledgement and TOC
+\else
+\begin{spacing}{1.5}
+\input{./CoverPages/Certificate}
+
+\newpage
+\input{./CoverPages/Ack_int}
+
+\newpage
+\pagenumbering{roman}
+
+\chapter*{}
+\input{./CoverPages/Certifcate}
+
+\chapter*{Executive Summary}
+\input{./CoverPages/Summarys}
+
+\end{spacing}
+\newpage
+\pagestyle{fplain}
+\begin{spacing}{1.5}
+	\tableofcontents	
+\end{spacing}
+\newpage
+\begin{spacing}{1.5}
+	\cleardoublepage
+	\addcontentsline{toc}{chapter}{\listfigurename}
+	\listoffigures	
+\end{spacing}
+\newpage
+\begin{spacing}{1.5}
+	\cleardoublepage
+	\addcontentsline{toc}{chapter}{\listtablename}
+	\listoftables	
+\end{spacing}
+% Uncomment the following line if you have not used any Acronyms in the report.
+\printglossary[type=\acronymtype, title= Abbreviations, toctitle=Abbreviations]
+% Uncomment the following line if you have not used any glossaries in the report.
+\printglossary[type=symbolList, title= List of Symbols, toctitle=List of Symbols]
+\fi
+
+\mainmatter
+\pagestyle{mplain}
+\glsresetall
+\begin{spacing}{1.5}
+%Chapter 1 
+\input{./Chapter1/chapter1-Profile}
+
+%Chapter 2
+\input{./Chapter2/chapter2-Activity}
+
+%Chapter 3
+\input{./Chapter3/chapter3-Task}
+
+%Chapter 4
+\input{./Chapter4/chapter4-Reflection}
+
+
+%% Uncomment the following 2 commands to add Appendix chapters
+\appendix
+\input{./Appendix/Apndx}%Appendix Chapter 1
+
+\backmatter
+
+\clearpage
+\addcontentsline{toc}{chapter}{Bibliography}
+\printbibliography%
+\end{spacing}
+\end{document}

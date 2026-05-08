@@ -1,0 +1,14 @@
+\addcontentsline{toc}{chapter}{Abstract}\vspace{-1cm}
+%Border
+\begin{tikzpicture}[remember picture, overlay]
+  \draw[line width = 4pt] ($(current page.north west) + (0.75in,-0.75in)$) rectangle ($(current page.south east) + (-0.75in,0.75in)$);
+\end{tikzpicture}
+
+
+The industrialization of the FabricAI Pro Suite presents a comprehensive web-based platform designed for real-time anomaly detection in high-speed industrial looms. Fabric defect detection is traditionally constrained by manual inspection limitations and the significant computational latency of classical computer vision models. This report addresses these limitations by detailing the architectural evolution from a local desktop prototype to a decoupled, high-performance web architecture, leveraging WebSocket streaming and GPU-accelerated tensor operations.
+
+The primary objective of this work was to optimize an ensemble AI pipeline—fusing PatchCore, DINO, and a Vision Transformer Autoencoder (ViT-AE)—to deliver high-fidelity spatial anomaly heatmaps. By transitioning the nearest-neighbor clustering in PatchCore from CPU-bound sklearn models to natively batched \texttt{torch.cdist} operations on the GPU, we achieved a significant reduction in frame latency, enabling robust 15--30 FPS inference suitable for industrial deployment.
+
+The system incorporates a modern React/Vite frontend with a "Midnight Industrial" aesthetic, presenting a split-view dashboard for real-time comparative analysis between raw camera feeds and AI-processed anomaly maps. Precision bounding box overlays were implemented using contour thresholding techniques to provide intuitive visual feedback on localized defect clusters. The resulting architecture ensures scalable, containerized execution, establishing a robust foundation for modern textile manufacturing environments.
+
+\pagebreak
