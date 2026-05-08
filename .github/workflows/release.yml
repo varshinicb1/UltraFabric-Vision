@@ -1,0 +1,35 @@
+name: Automated Release Manager
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags like v1.0, v20.15.10
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Web App
+        working-directory: ./web_app
+        run: |
+          npm ci
+          npm run build
+          zip -r ../frontend-build.zip dist/
+
+      - name: Package Source Code
+        run: |
+          zip -r ultrafabric-vision-source.zip . -x "*.git*" -x "*node_modules*" -x "*venv*" -x "*.pyc"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            frontend-build.zip
+            ultrafabric-vision-source.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
