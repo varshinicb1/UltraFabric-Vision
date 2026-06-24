@@ -100,6 +100,7 @@ class PatchCore(BaseModel):
 
     # ------------------------------------------------------------------
     def predict(self, x):
+        x = x.to(self.device)
         if self.memory_bank is None:
             return 0.5, np.zeros((x.shape[2], x.shape[3]), dtype=np.float32)
 

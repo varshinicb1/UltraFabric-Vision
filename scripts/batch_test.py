@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder

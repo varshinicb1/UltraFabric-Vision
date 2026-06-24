@@ -5,6 +5,8 @@ import os
 import time
 from tqdm import tqdm
 from models.dino import DINOFeatureExtractor
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from models.patchcore import PatchCore
 from models.vit_autoencoder import ViTAutoencoder
 from fusion.ensemble import EnsembleFusion

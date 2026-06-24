@@ -100,6 +100,7 @@ class DINOFeatureExtractor(BaseModel):
         Returns (anomaly_score, anomaly_heatmap).
         If no memory bank has been fitted, returns a dummy fallback.
         """
+        x = x.to(self.device)
         if self.memory_bank is None:
             b, c, h, w = x.shape
             return 0.0, np.zeros((h, w), dtype=np.float32)

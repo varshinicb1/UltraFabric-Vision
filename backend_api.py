@@ -73,25 +73,41 @@ async def load_models():
     global fusion_engine, dino_extractor
     print("Loading AI Engine...")
     weights_dir = os.path.join(project_root, 'weights')
+    os.makedirs(weights_dir, exist_ok=True)
     
     models = []
-    # PatchCore
-    pc = PatchCore().to(device)
-    pc.load_memory_bank(os.path.join(weights_dir, 'patchcore_memory_bank.pkl'))
-    models.append(pc)
+    try:
+        # PatchCore
+        pc = PatchCore().to(device)
+        pc.load_memory_bank(os.path.join(weights_dir, 'patchcore_memory_bank.pkl'))
+        models.append(pc)
+        print("  PatchCore loaded.")
+    except Exception as e:
+        print(f"  Warning: PatchCore load failed: {e}")
     
-    # DINO
-    dino_extractor = DINOFeatureExtractor().to(device)
-    dino_extractor.load_memory_bank(os.path.join(weights_dir, 'dino_memory_bank.pkl'))
-    models.append(dino_extractor)
+    try:
+        # DINO
+        dino_extractor = DINOFeatureExtractor().to(device)
+        dino_extractor.load_memory_bank(os.path.join(weights_dir, 'dino_memory_bank.pkl'))
+        models.append(dino_extractor)
+        print("  DINO loaded.")
+    except Exception as e:
+        print(f"  Warning: DINO load failed: {e}")
     
-    # ViT Autoencoder
-    vae = ViTAutoencoder().to(device)
-    vae.load_weights(os.path.join(weights_dir, 'vit_ae_weights.pth'))
-    models.append(vae)
+    try:
+        # ViT Autoencoder
+        vae = ViTAutoencoder().to(device)
+        vae.load_weights(os.path.join(weights_dir, 'vit_ae_weights.pth'))
+        models.append(vae)
+        print("  ViT-AE loaded.")
+    except Exception as e:
+        print(f"  Warning: ViT-AE load failed: {e}")
     
-    fusion_engine = EnsembleFusion(models)
-    print("AI Engine loaded successfully.")
+    if models:
+        fusion_engine = EnsembleFusion(models)
+        print(f"AI Engine loaded with {len(models)} model(s).")
+    else:
+        print("WARNING: No models loaded. API will return dummy responses.")
 
 def process_frame(img_bgr):
     """Processes a BGR image and returns visualization, score, and anomaly status."""
@@ -114,7 +130,7 @@ def process_frame(img_bgr):
     latency = (time.time() - t0) * 1000
     
     # Threshold for defect
-    is_anomalous = score > 35.0
+    is_anomalous = score > 22.0
     
     # Create Neural Insight Grid (Real Attention from Head 0)
     # Normalize each head for visualization

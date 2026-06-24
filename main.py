@@ -12,7 +12,7 @@ from models.vit_autoencoder import ViTAutoencoder
 def main():
     print("""
     ========================================================
-    |             FABRIC AI PRO SUITE — GEN 2              |
+    |             FABRIC AI PRO SUITE --- GEN 2              |
     |          Industrial Defect Detection System          |
     ========================================================
     [STATUS] Initializing High-Performance AI Engine...

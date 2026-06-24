@@ -1,8 +1,11 @@
-import os
+import os, sys
 import torch
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder
@@ -57,7 +60,7 @@ def visualize_ensemble(image_path, weights_dir='weights'):
 
     # 4. Plotting
     plt.figure(figsize=(18, 10))
-    plt.suptitle("FabricAI Pro — Ensemble Model Visualization (Exploded View)", fontsize=16, fontweight='bold')
+    plt.suptitle("FabricAI Pro --- Ensemble Model Visualization (Exploded View)", fontsize=16, fontweight='bold')
     
     titles = ["Original Image", "PatchCore (CNN)", "DINO (Transformer)", "ViT-AE (Recon)", "Fused Ensemble"]
     images = [img_resized] + results + [fused_hmap]

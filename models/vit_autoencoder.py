@@ -69,6 +69,7 @@ class ViTAutoencoder(BaseModel):
 
     # ------------------------------------------------------------------
     def predict(self, x):
+        x = x.to(self.device)
         self.eval()
         with torch.no_grad():
             reconstructed = self.forward(x)

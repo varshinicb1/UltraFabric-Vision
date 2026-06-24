@@ -23,15 +23,20 @@ datasets_collection/
 experiments_data/
 test_results/
 reports_output/
-reports/
 
-# Research & Misc
+# Research & Misc (but track report/Figures and report/*.tex)
+reports/
 research_papers/
 *.zip
 *.tar.gz
 *.pdf
 backend.log
 test_ws.py
+
+# Exceptions: track report/ (not reports/) paper and figures
+!report/research_paper.tex
+!report/research_paper.pdf
+!report/Figures/
 
 # Build Artifacts
 build/

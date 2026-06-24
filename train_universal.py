@@ -63,14 +63,14 @@ def train_universal():
     pc = PatchCore().to(device)
     pc.fit(train_loader)
     pc.save_memory_bank(os.path.join(weights_dir, 'patchcore_memory_bank.pkl'))
-    print("  ✓ Saved Universal PatchCore")
+    print("  OK Saved Universal PatchCore")
 
     # --- 3. Phase 2: DINO (Semantic Invariance) ---
     print("\n[PHASE 2] Fitting Universal DINO...")
     dino = DINOFeatureExtractor().to(device)
     dino.fit(train_loader)
     dino.save_memory_bank(os.path.join(weights_dir, 'dino_memory_bank.pkl'))
-    print("  ✓ Saved Universal DINO")
+    print("  OK Saved Universal DINO")
 
     # --- 4. Phase 3: ViT-Autoencoder (Reconstruction) ---
     print("\n[PHASE 3] Training Universal ViT-Autoencoder...")
@@ -92,7 +92,7 @@ def train_universal():
         print(f"  Epoch {epoch+1:2d}/15 | Loss: {total_loss/len(train_loader):.6f}")
     
     vae.save_weights(os.path.join(weights_dir, 'vit_ae_weights.pth'))
-    print("  ✓ Saved Universal ViT-AE")
+    print("  OK Saved Universal ViT-AE")
 
     # --- 5. Phase 4: Dynamic Accuracy Calibration ---
     print("\n[PHASE 4] Calibrating Ensemble Accuracy...")
