@@ -31,6 +31,7 @@ function App() {
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const logEndRef = useRef(null);
+  const terminalRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const frameTimerRef = useRef(null);
 
@@ -78,7 +79,9 @@ function App() {
   }, [isStreaming, streamSource, cameraUrl, stopStreaming]);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
   }, [logs]);
 
   // WebSocket Setup for Live Stream
@@ -331,7 +334,7 @@ function App() {
               </div>
               <div className="trace-container">
                 <div className="panel-label">TRANSFORMER BACKEND TRACE</div>
-                <div className="terminal">
+                <div className="terminal" ref={terminalRef}>
                   {logs.length === 0 && <div className="log-line muted">Awaiting trace telemetry...</div>}
                   {logs.map((l, i) => (
                     <div key={i} className={`log-line ${l.includes('ERROR') ? 'error' : ''}`}>
