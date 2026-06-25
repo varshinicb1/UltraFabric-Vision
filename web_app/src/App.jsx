@@ -17,26 +17,6 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [urlError, setUrlError] = useState('');
   
-  const handleToggleStream = useCallback(() => {
-    if (isStreaming) {
-      stopStreaming();
-      return;
-    }
-    if (streamSource === 'url') {
-      if (!cameraUrl.trim()) {
-        setUrlError('Please enter a camera stream URL');
-        return;
-      }
-      if (!isValidStreamUrl(cameraUrl.trim())) {
-        setUrlError('Invalid URL. Use rtsp://, http://, or https://');
-        return;
-      }
-      setUrlError('');
-    }
-    setLogs([]);
-    setIsStreaming(true);
-  }, [isStreaming, streamSource, cameraUrl, stopStreaming]);
-
   const [stats, setStats] = useState({
     status: 'Ready',
     score: 0,
@@ -76,6 +56,26 @@ function App() {
       videoRef.current.srcObject = null;
     }
   }, []);
+
+  const handleToggleStream = useCallback(() => {
+    if (isStreaming) {
+      stopStreaming();
+      return;
+    }
+    if (streamSource === 'url') {
+      if (!cameraUrl.trim()) {
+        setUrlError('Please enter a camera stream URL');
+        return;
+      }
+      if (!isValidStreamUrl(cameraUrl.trim())) {
+        setUrlError('Invalid URL. Use rtsp://, http://, or https://');
+        return;
+      }
+      setUrlError('');
+    }
+    setLogs([]);
+    setIsStreaming(true);
+  }, [isStreaming, streamSource, cameraUrl, stopStreaming]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
