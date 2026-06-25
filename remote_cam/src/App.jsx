@@ -2,16 +2,20 @@ import React, { useState, useRef, useEffect } from 'react';
 
 function App() {
   const [status, setStatus] = useState('Disconnected');
-  const [apiUrl, setApiUrl] = useState('ws://localhost:8000/ws/stream');
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const defaultWs = `${protocol}//${window.location.hostname}:8000/ws/stream`;
+  const [apiUrl, setApiUrl] = useState(defaultWs);
   const [fps, setFps] = useState(15);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const wsRef = useRef(null);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     startCamera();
     return () => {
       if (wsRef.current) wsRef.current.close();
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
 
@@ -69,8 +73,11 @@ function App() {
 
   const connect = () => {
     if (wsRef.current) wsRef.current.close();
+    if (timerRef.current) clearInterval(timerRef.current);
     
+    setStatus('Connecting...');
     wsRef.current = new WebSocket(apiUrl);
+    let reconnectTimer = null;
     
     wsRef.current.onopen = () => {
       setStatus(status.includes('Simulating') ? 'Streaming (Simulated)' : 'Streaming (Live)');
@@ -79,6 +86,13 @@ function App() {
     
     wsRef.current.onclose = () => {
       setStatus('Disconnected');
+      if (timerRef.current) clearInterval(timerRef.current);
+      reconnectTimer = setTimeout(() => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) {
+          setStatus('Reconnecting...');
+          connect();
+        }
+      }, 3000);
     };
     
     wsRef.current.onerror = () => {
@@ -87,14 +101,14 @@ function App() {
   };
 
   const startStreaming = () => {
-    const interval = setInterval(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         const canvas = canvasRef.current;
+        if (!canvas) return;
         const data = canvas.toDataURL('image/jpeg', 0.5);
         const base64Data = data.split(',')[1];
         wsRef.current.send(base64Data);
-      } else {
-        clearInterval(interval);
       }
     }, 1000 / fps);
   };
@@ -103,8 +117,8 @@ function App() {
     <div className="remote-container">
       <header>
         <div className="logo-section">
-          <span className="brand">Firebase</span>
-          <span className="product">Streamer Pro</span>
+          <span className="brand">UltraFabric</span>
+          <span className="product">Remote Cam</span>
         </div>
         <div className={`status-badge ${status.toLowerCase().replace(/ /g, '-')}`}>
           {status}
@@ -142,8 +156,16 @@ function App() {
             />
           </div>
 
-          <button onClick={connect} className={wsRef.current?.readyState === WebSocket.OPEN ? 'active' : ''}>
-            {wsRef.current?.readyState === WebSocket.OPEN ? 'STOP STREAM' : 'START UPLINK'}
+          <button onClick={() => {
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.close();
+              if (timerRef.current) clearInterval(timerRef.current);
+              setStatus('Disconnected');
+            } else {
+              connect();
+            }
+          }} className={wsRef.current?.readyState === WebSocket.OPEN ? 'active' : ''}>
+            {wsRef.current?.readyState === WebSocket.OPEN ? 'DISCONNECT' : 'CONNECT & STREAM'}
           </button>
         </div>
       </main>
@@ -152,7 +174,7 @@ function App() {
         <div className="telemetry-bar">
           <span>TX: 0.0 MB/s</span>
           <span>Buffer: 0ms</span>
-          <span>Auth: Google Cloud Identity</span>
+          <span>WebSocket Relay</span>
         </div>
       </footer>
     </div>

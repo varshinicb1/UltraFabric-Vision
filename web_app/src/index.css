@@ -250,6 +250,25 @@ body {
   border-color: var(--primary);
 }
 
+.url-input.has-error {
+  border-color: var(--red);
+  background: #fef2f2;
+}
+
+.url-input-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.url-error-msg {
+  font-size: 0.7rem;
+  color: var(--red);
+  font-weight: 600;
+  padding-left: 0.25rem;
+}
+
 .stream-toggle {
   padding: 0.6rem 1.5rem;
   border-radius: 0.75rem;

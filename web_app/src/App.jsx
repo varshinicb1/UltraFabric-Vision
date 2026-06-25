@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './index.css';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('analysis'); // Default to Batch Analysis
+  const [activeTab, setActiveTab] = useState('analysis');
   const [frame, setFrame] = useState(null);
   const [rawFrame, setRawFrame] = useState(null);
   const [neuralGrid, setNeuralGrid] = useState(Array(14).fill(Array(14).fill(0)));
@@ -12,10 +12,31 @@ function App() {
   const [batchResults, setBatchResults] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
-  const [streamSource, setStreamSource] = useState('webcam'); // 'webcam' or 'url'
+  const [streamSource, setStreamSource] = useState('webcam');
   const [cameraUrl, setCameraUrl] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [urlError, setUrlError] = useState('');
   
+  const handleToggleStream = useCallback(() => {
+    if (isStreaming) {
+      stopStreaming();
+      return;
+    }
+    if (streamSource === 'url') {
+      if (!cameraUrl.trim()) {
+        setUrlError('Please enter a camera stream URL');
+        return;
+      }
+      if (!isValidStreamUrl(cameraUrl.trim())) {
+        setUrlError('Invalid URL. Use rtsp://, http://, or https://');
+        return;
+      }
+      setUrlError('');
+    }
+    setLogs([]);
+    setIsStreaming(true);
+  }, [isStreaming, streamSource, cameraUrl, stopStreaming]);
+
   const [stats, setStats] = useState({
     status: 'Ready',
     score: 0,
@@ -30,6 +51,31 @@ function App() {
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const logEndRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const frameTimerRef = useRef(null);
+
+  const isValidStreamUrl = (url) => {
+    try {
+      const u = new URL(url);
+      return ['http:', 'https:', 'rtsp:', 'rtmp:', 'ftp:'].includes(u.protocol);
+    } catch { return false; }
+  };
+
+  const addLog = useCallback((msg) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setLogs(prev => [...prev.slice(-15), `[${timestamp}] ${msg}`]);
+  }, []);
+
+  const stopStreaming = useCallback(() => {
+    setIsStreaming(false);
+    if (socketRef.current) { socketRef.current.close(); socketRef.current = null; }
+    if (frameTimerRef.current) { clearInterval(frameTimerRef.current); frameTimerRef.current = null; }
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,16 +86,40 @@ function App() {
     if (activeTab !== 'live' || !isStreaming) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let socketUrl = streamSource === 'webcam' 
-      ? `${protocol}//${window.location.hostname}:8000/ws/stream`
-      : streamSource === 'monitor'
-      ? `${protocol}//${window.location.hostname}:8000/ws/subscribe`
-      : `${protocol}//${window.location.hostname}:8000/ws/remote_stream?url=${encodeURIComponent(cameraUrl)}`;
+    let socketUrl;
+    if (streamSource === 'webcam') {
+      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/stream`;
+    } else if (streamSource === 'monitor') {
+      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/subscribe`;
+    } else {
+      if (!cameraUrl) {
+        addLog('ERROR: No camera URL provided');
+        setIsStreaming(false);
+        return;
+      }
+      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/remote_stream?url=${encodeURIComponent(cameraUrl)}`;
+    }
 
-    socketRef.current = new WebSocket(socketUrl);
+    addLog(`Connecting to ${streamSource}...`);
+    let ws = new WebSocket(socketUrl);
+    socketRef.current = ws;
     
-    socketRef.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    ws.onopen = () => {
+      addLog('WebSocket connected');
+      setStats(prev => ({ ...prev, engineState: 'Active' }));
+
+      if (streamSource === 'webcam') {
+        navigator.mediaDevices.getUserMedia({ video: { width: 448, height: 448 } })
+          .then(stream => { if (videoRef.current) videoRef.current.srcObject = stream; })
+          .catch(err => {
+            addLog(`Webcam error: ${err.message}`);
+          });
+      }
+    };
+    
+    ws.onmessage = (event) => {
+      let data;
+      try { data = JSON.parse(event.data); } catch { return; }
       if (data.image_data) setFrame(data.image_data);
       if (data.raw_data) setRawFrame(data.raw_data);
       setNeuralGrid(data.neural_grid || []);
@@ -68,49 +138,59 @@ function App() {
       }));
 
       if (data.trace) {
-        const timestamp = new Date().toLocaleTimeString();
-        setLogs(prev => {
-          const newLogs = data.trace.map(t => `[${timestamp}] ${t}`);
-          return [...prev.slice(-15), ...newLogs];
-        });
+        data.trace.forEach(t => addLog(t));
       }
     };
 
-    if (streamSource === 'webcam') {
-      navigator.mediaDevices.getUserMedia({ video: { width: 448, height: 448 } })
-        .then(stream => { if (videoRef.current) videoRef.current.srcObject = stream; })
-        .catch(err => {
-          console.error("Camera error:", err);
-          setLogs(prev => [...prev, `[ERROR] Webcam Access Denied: ${err.message}`]);
-        });
-    }
+    ws.onerror = () => {
+      addLog('WebSocket connection error');
+    };
+
+    ws.onclose = () => {
+      addLog('WebSocket disconnected');
+      setStats(prev => ({ ...prev, engineState: 'Idle' }));
+      // Auto-reconnect for URL/remote modes
+      if (streamSource !== 'webcam') {
+        reconnectTimerRef.current = setTimeout(() => {
+          if (isStreaming) {
+            addLog('Reconnecting...');
+            setIsStreaming(false);
+            setTimeout(() => setIsStreaming(true), 100);
+          }
+        }, 3000);
+      }
+    };
 
     return () => { 
-      if (socketRef.current) socketRef.current.close(); 
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      ws.close();
       if (videoRef.current?.srcObject) {
         videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       }
     };
   }, [activeTab, isStreaming, streamSource, cameraUrl]);
 
-  // Webcam Frame Loop
+  // Webcam Frame Capture Loop
   useEffect(() => {
     if (activeTab !== 'live' || streamSource !== 'webcam' || !isStreaming) return;
-    const timer = setInterval(() => {
-      if (videoRef.current && videoRef.current.readyState >= 2 && socketRef.current?.readyState === WebSocket.OPEN) {
+    if (frameTimerRef.current) clearInterval(frameTimerRef.current);
+    frameTimerRef.current = setInterval(() => {
+      const ws = socketRef.current;
+      const vid = videoRef.current;
+      if (vid && vid.readyState >= 2 && ws?.readyState === WebSocket.OPEN) {
         try {
           const canvas = document.createElement('canvas');
           canvas.width = 224; canvas.height = 224;
-          canvas.getContext('2d').drawImage(videoRef.current, 0, 0, 224, 224);
+          canvas.getContext('2d').drawImage(vid, 0, 0, 224, 224);
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
           setRawFrame(base64);
-          socketRef.current.send(base64);
+          ws.send(base64);
         } catch (err) {
-          console.error("Frame extraction error:", err);
+          addLog(`Frame error: ${err.message}`);
         }
       }
     }, 200);
-    return () => clearInterval(timer);
+    return () => { if (frameTimerRef.current) clearInterval(frameTimerRef.current); };
   }, [activeTab, streamSource, isStreaming]);
 
   const handleFileUpload = async (e, isBatch = false) => {
@@ -204,22 +284,31 @@ function App() {
             <div className="live-grid">
               <div className="stream-controls">
                 <div className="source-selector">
-                  <select value={streamSource} onChange={(e) => { setStreamSource(e.target.value); setIsStreaming(false); }}>
+                  <select value={streamSource} onChange={(e) => {
+                    setStreamSource(e.target.value);
+                    setIsStreaming(false);
+                    setUrlError('');
+                    stopStreaming();
+                  }}>
                     <option value="webcam">Local Webcam</option>
-                    <option value="monitor">Remote Monitor (Firebase)</option>
                     <option value="url">Camera URL (IP/RTSP)</option>
+                    <option value="monitor">Remote Monitor</option>
                   </select>
                 </div>
                 {streamSource === 'url' && (
-                  <input 
-                    type="text" 
-                    placeholder="Enter RTSP/HTTP Stream URL..." 
-                    className="url-input"
-                    value={cameraUrl}
-                    onChange={(e) => setCameraUrl(e.target.value)}
-                  />
+                  <div className="url-input-group">
+                    <input 
+                      type="text" 
+                      placeholder="rtsp://192.168.1.100:554/stream or http://..." 
+                      className={`url-input ${urlError ? 'has-error' : ''}`}
+                      value={cameraUrl}
+                      onChange={(e) => { setCameraUrl(e.target.value); setUrlError(''); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && cameraUrl) handleToggleStream(); }}
+                    />
+                    {urlError && <span className="url-error-msg">{urlError}</span>}
+                  </div>
                 )}
-                <button className={`stream-toggle ${isStreaming ? 'stop' : 'start'}`} onClick={() => setIsStreaming(!isStreaming)}>
+                <button className={`stream-toggle ${isStreaming ? 'stop' : 'start'}`} onClick={handleToggleStream}>
                   {isStreaming ? 'STOP STREAM' : 'INITIALIZE ENGINE'}
                 </button>
               </div>
