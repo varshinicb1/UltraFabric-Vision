@@ -25,13 +25,18 @@ test_results/
 reports_output/
 reports/
 
-# Research & Misc
+# Research & Misc (but allow report/paper.pdf and report/Figures/)
 research_papers/
 *.zip
 *.tar.gz
 *.pdf
 backend.log
 test_ws.py
+
+# Allow important paper files
+!report/research_paper.pdf
+!report/research_paper.tex
+!report/Figures/
 
 # Build Artifacts
 build/
