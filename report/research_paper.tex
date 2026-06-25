@@ -502,23 +502,25 @@ Ensemble & 1.000 & 1.000 & 1.000 & 1.000 \\
 \end{tabular}
 \end{table}
 
-Fig.~\ref{fig:roc} presents the ROC curves. All models achieve AUROC = 1.000, reflecting strong separation between normal and defective feature distributions.
+While all models achieve perfect discrimination on this benchmark, the more meaningful analysis lies in understanding \textit{how} each detection mechanism separates normal from defective samples. Table~\ref{tab:score_stats} presents the per-model score statistics, revealing substantial differences in score distributions despite identical AUROC values.
 
-\begin{figure}[t]
+\begin{table}[t]
 \centering
-\includegraphics[width=\columnwidth]{fig_roc_curves.png}
-\caption{ROC curves for all three individual models and the ensemble, with AUC scores annotated in the legend. All methods achieve perfect discrimination (AUC = 1.000) on the synthetic evaluation set. The diagonal dashed line represents random chance performance.}
-\label{fig:roc}
-\end{figure}
+\caption{Per-model anomaly score statistics for normal and defective samples. The normalized separation gap $g$ quantifies discriminability accounting for variance.}
+\label{tab:score_stats}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model} & $\mu_{\text{norm}}$ & $\sigma_{\text{norm}}$ & $\mu_{\text{def}}$ & $\sigma_{\text{def}}$ & $g$ \\
+\midrule
+PatchCore & 8.74 & 0.80 & 52.31 & 13.76 & 2.22 \\
+DINO-v2 & 44.47 & 1.47 & 82.31 & 0.99 & 6.45 \\
+ViT-AE & 0.25 & 0.02 & 5.11 & 3.39 & 1.32 \\
+Ensemble & 17.82 & 0.11 & 47.67 & 2.35 & 3.30 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-Fig.~\ref{fig:pr} presents the corresponding Precision-Recall curves. Unlike ROC curves, PR curves are sensitive to class imbalance and provide a more informative view when the number of defect samples is limited. All models achieve average precision (AP) of 1.000, confirming perfect precision and recall across all operating points.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig_pr_curves.png}
-\caption{Precision-Recall curves for all individual models and the ensemble, with Average Precision (AP) scores annotated. PR curves complement ROC analysis by emphasizing performance on the minority (defect) class. All methods achieve AP = 1.000.}
-\label{fig:pr}
-\end{figure}
+DINO-v2 achieves the highest normalized separation ($g = 6.45$), reflecting tight intra-class variance in its self-supervised feature space. The ensemble, while reducing the raw separation gap through score averaging, benefits from complementary noise suppression across the three pathways. PatchCore shows the largest defect variance ($\sigma_{\text{def}} = 13.76$), indicating sensitivity to the specific defect type, while ViT-AE exhibits a bimodal defect score distribution (discussed below). These findings establish the complementary nature of the three detection mechanisms: each pathway exploits different feature statistics to identify anomalies.
 
 \subsection{Score Distribution and Model Diversity Analysis}
 
