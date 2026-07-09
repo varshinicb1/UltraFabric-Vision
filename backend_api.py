@@ -33,7 +33,9 @@ from fusion.ensemble import EnsembleFusion
 from app_utils.helpers import resize_and_pad, apply_heatmap, preprocess_frame, load_threshold, load_calibration, detect_defect_regions
 from app_utils.config import config
 import tempfile
+import datetime
 import batch_inspect
+import qc_report
 
 # Apply performance flags from config
 model_base.USE_AMP = config.use_amp
@@ -347,8 +349,9 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
     tmp.write(contents); tmp.close()
 
     safe_batch = "".join(c for c in batch if c.isalnum() or c in ('-', '_')) or "batch"
-    ann_name = f"{safe_batch}_{TS_COUNTER['n']}_annotated.mp4"
+    seq = TS_COUNTER['n']
     TS_COUNTER['n'] += 1
+    ann_name = f"{safe_batch}_{seq}_annotated.mp4"
     ann_path = os.path.join(BATCH_OUT_DIR, ann_name)
     try:
         cap = cv2.VideoCapture(tmp.name)
@@ -403,20 +406,29 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
     report['defect_map'] = "data:image/png;base64," + base64.b64encode(buf).decode('utf-8')
     report['annotated_video'] = f"/api/batch_video/{ann_name}"
     report['passed'] = report['defect_frames'] == 0
+    report['seq'] = seq
+    report['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    report['qc_report'] = f"/api/batch_report/{seq}"
 
-    # Record in batch history (newest first, capped).
-    BATCH_HISTORY.insert(0, {
-        'batch': report['batch'], 'source': report['source'], 'mode': mode,
-        'passed': report['passed'], 'defect_frames': report['defect_frames'],
-        'processed_frames': report['processed_frames'],
-        'zones_with_defects': report['zones_with_defects'],
-        'batch_length_m': meters, 'defect_events': report['defect_events'],
-        'segment_summary': report['segment_summary'],
-        'defect_map': report['defect_map'], 'annotated_video': report['annotated_video'],
-        'seq': TS_COUNTER['n'],
-    })
-    del BATCH_HISTORY[50:]
+    # Record the full report in batch history (newest first, capped).
+    BATCH_HISTORY.insert(0, dict(report))
+    del BATCH_HISTORY[25:]
     return report
+
+@app.get("/api/batch_report/{seq}")
+def batch_report_pdf(seq: int):
+    """Generate and serve a QC PDF record for a batch in the inspection history."""
+    item = next((b for b in BATCH_HISTORY if b.get('seq') == seq), None)
+    if item is None:
+        return JSONResponse(status_code=404, content={"error": "batch not found in history"})
+    from fastapi.responses import FileResponse
+    safe = "".join(c for c in str(item.get('batch', 'batch')) if c.isalnum() or c in ('-', '_'))
+    pdf_path = os.path.join(BATCH_OUT_DIR, f"{safe}_{seq}_qc.pdf")
+    try:
+        qc_report.generate_qc_pdf(item, pdf_path, timestamp=item.get('timestamp', ''))
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"report generation failed: {e}"})
+    return FileResponse(pdf_path, media_type="application/pdf", filename=os.path.basename(pdf_path))
 
 @app.get("/api/batch_video/{name}")
 def get_batch_video(name: str):

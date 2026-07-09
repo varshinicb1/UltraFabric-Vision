@@ -530,6 +530,14 @@ function App() {
                     ))}
                   </div>
 
+                  {videoReport.qc_report && (
+                    <a href={`${API}${videoReport.qc_report}`} target="_blank" rel="noreferrer"
+                       style={{ display: 'inline-block', marginBottom: 14, padding: '8px 16px', borderRadius: 8,
+                                background: '#3b82f6', color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+                      📄 Download QC Report (PDF)
+                    </a>
+                  )}
+
                   <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>DEFECT LOCATION MAP (along {videoReport.batch_length_m} m batch)</div>
                   <img src={videoReport.defect_map} alt="defect map" style={{ width: '100%', borderRadius: 8, border: '1px solid #1e293b' }} />
 
