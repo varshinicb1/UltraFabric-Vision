@@ -30,8 +30,10 @@ from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder
 from fusion.ensemble import EnsembleFusion
-from app_utils.helpers import resize_and_pad, apply_heatmap, preprocess_frame, load_threshold, load_calibration
+from app_utils.helpers import resize_and_pad, apply_heatmap, preprocess_frame, load_threshold, load_calibration, detect_defect_regions
 from app_utils.config import config
+import tempfile
+import batch_inspect
 
 # Apply performance flags from config
 model_base.USE_AMP = config.use_amp
@@ -321,6 +323,66 @@ async def batch_upload(files: List[UploadFile] = File(...), mode: str = None):
             "raw_data": f"data:image/jpeg;base64,{raw_base64}"
         })
     return {"count": len(results), "results": results}
+
+@app.post("/api/upload_video")
+async def upload_video(file: UploadFile = File(...), batch: str = "B001",
+                       meters: float = 5.0, segments: int = 10,
+                       mode: str = None, stride: int = 1):
+    """Batch-video inspection: score every frame, localize defects along the
+    fabric length, and return a per-zone report + a defect-location map image."""
+    if fusion_engine is None:
+        return JSONResponse(status_code=503, content={"error": "engine still loading"})
+    mode = (mode or DEFAULT_MODE)
+    threshold = FAST_THRESHOLD if (mode == 'fast' and FAST_MODEL is not None) else DETECTION_THRESHOLD
+
+    contents = await file.read()
+    suffix = os.path.splitext(file.filename or '')[1] or '.mp4'
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp.write(contents); tmp.close()
+    try:
+        cap = cv2.VideoCapture(tmp.name)
+        if not cap.isOpened():
+            return JSONResponse(status_code=400, content={"error": "cannot decode video"})
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        fps = cap.get(cv2.CAP_PROP_FPS) or 15.0
+
+        frames_info, idx, n_proc = [], -1, 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            idx += 1
+            if idx % max(1, stride) != 0:
+                continue
+            n_proc += 1
+            tensor = preprocess_frame(frame, (224, 224), device,
+                                      config.imagenet_mean, config.imagenet_std)
+            with torch.no_grad():
+                if mode == 'fast' and FAST_MODEL is not None:
+                    score, hmap = FAST_MODEL.predict(tensor)
+                else:
+                    score, hmap = fusion_engine.predict(tensor)
+            boxes = detect_defect_regions(hmap, config.min_defect_area_frac,
+                                          config.defect_intensity_frac) if score > threshold else []
+            area = sum(b['area_frac'] for b in boxes)
+            frames_info.append(batch_inspect.frame_record(
+                idx, score, score > threshold and len(boxes) > 0, boxes, area,
+                fps, total, meters, segments))
+        cap.release()
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
+
+    report = batch_inspect.build_report(
+        frames_info, batch, meters, segments, fps, total, n_proc, threshold,
+        config.min_defect_area_frac, file.filename, mode, device)
+    dm = batch_inspect.build_defect_map(frames_info, meters, segments, batch,
+                                        threshold, report['defect_frames'], n_proc)
+    _, buf = cv2.imencode('.png', dm)
+    report['defect_map'] = "data:image/png;base64," + base64.b64encode(buf).decode('utf-8')
+    return report
 
 @app.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):

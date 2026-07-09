@@ -19,6 +19,11 @@ function App() {
   // Inference mode: 'accurate' = full ensemble (best accuracy); 'fast' = single
   // detector (low latency). Sent to the backend via ?mode= on every request.
   const [mode, setMode] = useState('accurate');
+  // Batch video analysis
+  const [videoBatch, setVideoBatch] = useState('B001');
+  const [videoMeters, setVideoMeters] = useState(5);
+  const [videoReport, setVideoReport] = useState(null);
+  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   
   const [stats, setStats] = useState({
     status: 'Ready',
@@ -249,6 +254,24 @@ function App() {
     setIsUploading(false);
   };
 
+  const handleVideoUpload = async (e) => {
+    const fileList = e.target.files;
+    if (!fileList || !fileList.length) return;
+    setIsProcessingVideo(true);
+    setVideoReport(null);
+    const formData = new FormData();
+    formData.append('file', fileList[0]);
+    const qs = `batch=${encodeURIComponent(videoBatch)}&meters=${videoMeters}&segments=10&mode=${mode}`;
+    try {
+      const res = await fetch(`http://localhost:8000/api/upload_video?${qs}`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.error) { console.error(data.error); }
+      else setVideoReport(data);
+    } catch (err) { console.error('Video inspection failed:', err); }
+    setIsProcessingVideo(false);
+    e.target.value = '';
+  };
+
   const safeNeuralGrid = Array.isArray(neuralGrid) && neuralGrid.length > 0 ? neuralGrid : Array(14).fill(Array(14).fill(0));
   const safeAttnHeads = Array.isArray(attnHeads) && attnHeads.length > 0 ? attnHeads : Array(6).fill(safeNeuralGrid);
 
@@ -277,6 +300,7 @@ function App() {
         <div className="nav-tabs">
           <button className={`nav-link ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>Live Stream Monitoring</button>
           <button className={`nav-link ${activeTab === 'analysis' ? 'active' : ''}`} onClick={() => setActiveTab('analysis')}>Offline Batch Analysis</button>
+          <button className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} onClick={() => setActiveTab('video')}>Batch Video Inspection</button>
         </div>
         <div className="sys-status">
           <div className="mode-toggle" role="group" aria-label="Inference mode"
@@ -365,7 +389,7 @@ function App() {
                 </div>
               </div>
             </div>
-          ) : (
+          ) : activeTab === 'analysis' ? (
             <div className="analysis-grid">
               <div className="upload-hero">
                 <h2>Batch Intelligence Processor</h2>
@@ -432,6 +456,82 @@ function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          ) : (
+            <div className="video-analysis" style={{ padding: 4 }}>
+              <div className="upload-hero">
+                <h2>Batch Video Inspection</h2>
+                <p>Upload a recorded fabric-batch video (e.g. from the conveyor). The engine
+                   scores every frame and reports which segment of the batch is defective.</p>
+                <div className="actions" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: 12, color: '#94a3b8' }}>Batch No.
+                    <input value={videoBatch} onChange={e => setVideoBatch(e.target.value)}
+                      style={{ display: 'block', marginTop: 4, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#0f172a', color: '#e2e8f0', width: 120 }} />
+                  </label>
+                  <label style={{ fontSize: 12, color: '#94a3b8' }}>Batch length (m)
+                    <input type="number" min="0.5" step="0.5" value={videoMeters} onChange={e => setVideoMeters(parseFloat(e.target.value) || 5)}
+                      style={{ display: 'block', marginTop: 4, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#0f172a', color: '#e2e8f0', width: 120 }} />
+                  </label>
+                  <label className="btn-primary" style={{ opacity: isProcessingVideo ? 0.6 : 1 }}>
+                    {isProcessingVideo ? 'Processing…' : 'Upload & Inspect Video'}
+                    <input type="file" hidden accept="video/*" disabled={isProcessingVideo} onChange={handleVideoUpload} />
+                  </label>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>Mode: <strong style={{ color: mode === 'fast' ? '#f59e0b' : '#3b82f6' }}>{mode}</strong></span>
+                </div>
+              </div>
+
+              {isProcessingVideo && <div style={{ padding: 20, color: '#94a3b8' }}>Running inference on every frame… this runs on the GPU and may take a few seconds per batch.</div>}
+
+              {videoReport && (
+                <div className="video-report" style={{ marginTop: 16 }}>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
+                    {[['Batch', videoReport.batch],
+                      ['Defect frames', `${videoReport.defect_frames}/${videoReport.processed_frames} (${(videoReport.defect_rate*100).toFixed(0)}%)`],
+                      ['Defective zones', videoReport.zones_with_defects.length ? videoReport.zones_with_defects.join(', ') : 'none'],
+                      ['Device', videoReport.device]].map(([k,v]) => (
+                      <div key={k} className="s-card" style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: '10px 14px', minWidth: 130 }}>
+                        <label style={{ fontSize: 11, color: '#64748b' }}>{k}</label>
+                        <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{String(v)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>DEFECT LOCATION MAP (along {videoReport.batch_length_m} m batch)</div>
+                  <img src={videoReport.defect_map} alt="defect map" style={{ width: '100%', borderRadius: 8, border: '1px solid #1e293b' }} />
+
+                  {videoReport.defect_events.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>DEFECT EVENTS</div>
+                      {videoReport.defect_events.map((ev, i) => (
+                        <div key={i} style={{ fontSize: 13, color: '#fca5a5', padding: '4px 0' }}>
+                          ▸ Defect at <strong>{ev.start_m}–{ev.end_m} m</strong> (zones {ev.zones.join(', ')}), peak score {ev.max_score}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>SEGMENT REPORT</div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead><tr style={{ color: '#64748b', textAlign: 'left' }}>
+                          <th style={{ padding: 6 }}>Zone</th><th style={{ padding: 6 }}>Position (m)</th>
+                          <th style={{ padding: 6 }}>Status</th><th style={{ padding: 6 }}>Defect frames</th><th style={{ padding: 6 }}>Max score</th>
+                        </tr></thead>
+                        <tbody>
+                          {videoReport.segment_summary.map(z => (
+                            <tr key={z.zone} style={{ borderTop: '1px solid #1e293b', color: z.status === 'DEFECT' ? '#fca5a5' : '#94a3b8' }}>
+                              <td style={{ padding: 6 }}>{z.zone}</td><td style={{ padding: 6 }}>{z.position_m}</td>
+                              <td style={{ padding: 6, fontWeight: z.status === 'DEFECT' ? 700 : 400 }}>{z.status}</td>
+                              <td style={{ padding: 6 }}>{z.defect_frames}</td><td style={{ padding: 6 }}>{z.max_score}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

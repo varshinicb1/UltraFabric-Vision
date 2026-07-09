@@ -67,6 +67,36 @@ def load_threshold(calibration_path, default=3.0):
     return float(default)
 
 
+def detect_defect_regions(heatmap, min_area_frac=0.004, intensity_frac=0.55):
+    """Extract sized defect regions from an anomaly heatmap.
+
+    Returns a list of boxes ``{x, y, w, h, area_frac}`` in the heatmap's own
+    pixel coordinates, keeping only connected regions whose area is at least
+    ``min_area_frac`` of the frame. This is what enforces a minimum defect size,
+    so tiny texture specks are not reported. Coordinates are normalized-agnostic;
+    scale them to the display resolution as needed.
+    """
+    h, w = heatmap.shape[:2]
+    hm = heatmap.astype(np.float32)
+    rng = hm.max() - hm.min()
+    if rng < 1e-9:
+        return []
+    norm = (hm - hm.min()) / rng
+    mask = (norm >= intensity_frac).astype(np.uint8) * 255
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    min_area = float(min_area_frac) * h * w
+    boxes = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area >= min_area:
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            boxes.append({'x': int(x), 'y': int(y), 'w': int(bw), 'h': int(bh),
+                          'area_frac': round(float(area) / (h * w), 5)})
+    return boxes
+
+
 def load_calibration(calibration_path):
     """Load the full calibration record (ensemble threshold, per-model thresholds,
     recommended fast model). Returns an empty dict if unavailable."""
