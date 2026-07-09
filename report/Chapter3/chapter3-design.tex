@@ -1,27 +1,58 @@
-\chapter{Analysis/Design of Pipelined Analog to Digital converter}
+\chapter{System Design}
 
-Every chapter should start with an introduction paragraph. This paragraph should brief about the flow of the chapter. This introduction can be limited within 4 to 5 sentences. The chapter heading should be appropriately modified (a sample heading is shown for this chapter).But don't start the introduction paragraph in the chapters like "This chapter deals with....". Instead you should bring in the highlights of the chapter in the introduction paragraph. 
-\section{Contents of this Chapter}
-This chapter should contain the following sections and subsections in detail.
+This chapter presents the design of UltraFabric-Vision. It states the functional and performance specifications, describes the parallel three-pathway architecture, derives the calibration and fusion equations that turn three heterogeneous detectors into a single decision, and outlines the deployment design that exposes the system to factory software.
+
+\section{Design Specifications}
+
+The system is designed to meet the following specifications:
 \begin{enumerate}
-\item Specifications for the Design
-\item Pre analysis work for the design or Models used
-\item Design methodology in detail
-\item Design Equations
-\item Experimental techniques (if any)
+\item Operate on a fixed input of $224\times224$ RGB frames.
+\item Require only defect-free fabric for fitting and calibration (no labelled defects).
+\item Produce a single scalar anomaly score and a spatial defect heatmap per frame.
+\item Achieve real-time throughput ($\geq 15$~FPS) on a consumer GPU.
+\item Expose a network interface for line integration and an embeddable interface for edge integration.
 \end{enumerate}
-Apart from the aforementioned sections, you can add sections as per the requirements of the project in consultation with your guide.
 
-\section{Paraphrasing}
-When you paraphrase a written passage, you rewrite it to state the essential ideas in your own words. Because you do not quote your source word for word when paraphrasing, it is unnecessary to enclose the paraphrased material in quotation marks. However, the paraphrased material must be properly referenced because the ideas are taken from someone else whether or not the words are identical. 
+\section{Architecture Overview}
 
-Ordinarily, the majority of the notes you take during the research phase of writing your report will paraphrase the original material. Paraphrase only the essential ideas. Strive to put original ideas into your own words without distorting them."
+The architecture comprises three detection pathways operating in parallel on the same preprocessed input, followed by a calibration-and-fusion stage. Each pathway independently produces a scalar score and a heatmap; the scores are standardized and averaged into a single decision variable, and the heatmaps are normalized and averaged into a fused localization map. Figure~\ref{fig:arch} depicts the end-to-end flow.
 
-\section{Quotations}
-When you have borrowed words, facts, or idea of any kind from someone else's work, acknowledge your debt by giving your source credit in footnote (or in running text as cited reference). Otherwise, you will be guilty of plagiarism. Also, be sure you have represented the original material honestly and accurately. Direct word to word quotations are enclosed in quotation marks."
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.95\textwidth]{Figures/system_architecture.png}
+\caption{End-to-end architecture: shared preprocessing feeds three parallel detectors (PatchCore, DINO, ViT-Autoencoder) whose calibrated scores and heatmaps are fused into a single decision and localization map.}
+\label{fig:arch}
+\end{figure}
 
-\vspace{0.75cm}
+\section{Preprocessing Design}
 
- \textbf{The chapters should not end with figures, instead bring the paragraph explaining about the figure at the end followed by a summary paragraph.}
+A single preprocessing routine is shared, byte-for-byte, between fitting and inference: resize to $224\times224$, convert to a tensor, and normalize using ImageNet statistics
+\[
+\hat{\mathbf{x}} = \frac{\mathbf{x}/255 - \boldsymbol{\mu}}{\boldsymbol{\sigma}}, \quad
+\boldsymbol{\mu} = [0.485,0.456,0.406],\ \boldsymbol{\sigma} = [0.229,0.224,0.225].
+\]
+Enhancement operators (contrast equalization, blur, letterbox padding) are deliberately excluded because they are not applied at fit time; introducing them only at inference shifts every frame off the fitted manifold and collapses accuracy.
 
-After elaborating the various sections of the chapter (From Chapter 2 onwards), a summary paragraph should be written discussing the highlights of that particular chapter. This summary paragraph should not be numbered separately. This paragraph should connect the present chapter to the next chapter.  
+\section{Calibration and Fusion Design}
+
+Let $\hat{s}_m(\mathbf{x})$ be the raw score of detector $m\in\{\text{PC},\text{D},\text{VAE}\}$. Over a calibration set of defect-free images $\mathcal{D}_{\text{cal}}$ we estimate the per-detector statistics
+\[
+\mu_m = \frac{1}{|\mathcal{D}_{\text{cal}}|}\sum_{\mathbf{x}} \hat{s}_m(\mathbf{x}), \qquad
+\sigma_m = \sqrt{\frac{1}{|\mathcal{D}_{\text{cal}}|}\sum_{\mathbf{x}} (\hat{s}_m(\mathbf{x})-\mu_m)^2},
+\]
+and standardize each score to a z-score,
+\[
+z_m(\mathbf{x}) = \frac{\hat{s}_m(\mathbf{x}) - \mu_m}{\sigma_m}.
+\]
+The ensemble decision score and fused heatmap are the (uniformly) weighted averages
+\[
+\hat{s}_{\text{ens}} = \sum_m w_m\, z_m, \qquad
+\mathbf{H}_{\text{ens}} = \sum_m w_m\, \mathbf{H}^{\text{norm}}_m, \qquad \sum_m w_m = 1.
+\]
+A frame is declared defective when $\hat{s}_{\text{ens}} > \tau$, with the threshold $\tau$ fixed by maximizing Youden's J statistic, $\tau^\star = \arg\max_\tau [\text{TPR}(\tau) - \text{FPR}(\tau)]$, on a validation set. Because each $z_m$ is centered on defect-free cloth, $\hat{s}_{\text{ens}}$ is near zero for normal fabric and $\tau$ is expressed in interpretable standard-deviation units.
+
+\section{Deployment Design}
+
+The calibrated pipeline is packaged behind three interfaces sharing one engine: a FastAPI REST/WebSocket server for line integration and live dashboards, an embeddable Python SDK for edge/PLC integration, and a batch command-line tool that emits CSV/JSON reports for manufacturing-execution systems. Runtime behaviour (device, mixed precision, threshold source, network binding, authentication) is controlled entirely through environment variables so that a single container image runs unchanged from development to the factory floor.
+
+In summary, the design combines a diverse three-pathway detector bank with a principled calibration-and-fusion stage and a deployment-oriented interface layer. Chapter~4 describes how each of these design elements is realized in code.

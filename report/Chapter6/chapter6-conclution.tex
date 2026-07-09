@@ -1,20 +1,23 @@
 \chapter{Conclusion and Future Scope}
-Every chapter should start with an introduction paragraph. This paragraph should brief about the flow of the chapter. This introduction can be limited within 4 to 5 sentences. The chapter heading should be appropriately modified (a sample heading is shown for this chapter). But don't start the introduction paragraph in the chapters like "This chapter deals with....". Instead you should bring in the highlights of the chapter in the introduction paragraph.
 
 \section{Conclusion}
-This chapter should not contain an introduction paragraph like other chapters. You can directly write conclusion of the work done under this section. Typically this section can have 3 to 4 paragraphs. 
 
-First paragraph should bring in the scenario of the project and every objective should be explained here.
+UltraFabric-Vision set out to build a real-time, unsupervised fabric-defect detection system by fusing three complementary anomaly detectors---PatchCore density estimation, DINO self-supervised attention, and Vision Transformer Autoencoder reconstruction---into a single calibrated decision, to minimize inference latency, and to industrialize the result as a deployable service. These three objectives structured the entire project.
 
-Second paragraph should say how the objectives are implemented and achieved.
+The objectives were met through a combination of diagnostic and engineering work. A preprocessing defect that had silently destroyed accuracy---inference-only enhancement operators absent at fitting time---was identified and corrected by enforcing byte-level train--inference parity. The three detectors' incomparable raw scores were standardized to a common z-score scale using statistics estimated on defect-free data, yielding a single interpretable decision variable and a portable threshold. Both nearest-neighbour searches were migrated to a single GPU kernel and augmented with mixed precision and single-pass attention, and the calibrated engine was wrapped in a REST/WebSocket service, an embeddable SDK, a batch CLI, and a GPU container.
 
-Last paragraph should draw the conclusions from each objective with quantitative results, performance improvement etc. 
+Quantitatively, the calibrated ensemble achieves perfect ranking on the evaluation benchmark (AUROC $=1.000$, $F_1 = 1.000$) with a wide decision margin: defect-free cloth clusters near a z-score of $0.17$ while defects reach a mean of $80.2$, against a threshold of $17.31$. The three pathways are quantitatively diverse (defect-score correlations of $0.71$--$0.72$ between DINO and the other detectors), and the full service is verified end-to-end by an automated test suite. The corrected preprocessing and score calibration together transform an unreliable prototype into a system whose decisions are both accurate and reproducible.
 
 \section{Future Scope}
-Briefly discuss the constraints and limitations of the project and state the possibilities of extending the work in future.
+
+The principal limitation of the present study is that its quantitative results are obtained on a controlled synthetic dataset; validation on real production fabric, across weaves and materials, is the immediate next step. Further directions include: on-hardware GPU benchmarking to confirm the projected line-speed latency; online adaptation of the memory banks to accommodate gradual process drift without full retraining; temporal fusion across consecutive frames to suppress transient false alarms; distillation of the three-model ensemble into a single lightweight student for edge deployment; and extension from binary detection to multi-class defect categorization, for which the autoencoder's bimodal response already provides a starting signal.
+
 \section{Learning Outcomes of the Project}
 \begin{itemize}
-\item List the learning outcomes here
-\item List a minimum of 5 learning outcomes
+\item Understanding of unsupervised anomaly detection and how memory-bank, self-supervised, and reconstruction-based methods differ in their inductive biases.
+\item Practical insight into Vision Transformers and self-attention as feature extractors for industrial inspection.
+\item The importance of train--inference consistency: how a subtle preprocessing mismatch can silently destroy the accuracy of distance-based models.
+\item Techniques for calibrating and fusing heterogeneous model outputs into a single, interpretable decision variable.
+\item GPU acceleration of machine-learning inference, including batched distance computation, mixed precision, and warm-up.
+\item Engineering a research prototype into a deployable, configurable, and tested service, including REST/WebSocket APIs, an embeddable SDK, and containerized deployment.
 \end{itemize}
-

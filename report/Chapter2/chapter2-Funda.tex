@@ -1,41 +1,47 @@
-\chapter{Theory and Fundamentals of Analog to Digital converter}
+\chapter{Theory and Fundamentals}
 
-Every chapter should start with an introduction paragraph. This paragraph should brief about the flow of the chapter. This introduction can be limited within 4 to 5 sentences. The chapter heading should be appropriately modified (a sample heading is shown for this chapter). But don't start the introduction paragraph in the chapters 2 to end with "This chapter deals with....". Instead you should bring in the highlights of the chapter in the introduction paragraph.
+A clear grasp of the underlying detection mechanisms is essential before the system design can be appreciated. This chapter establishes the theoretical foundation of UltraFabric-Vision: the anomaly-detection paradigm, the Vision Transformer that underpins all three detectors, and the specific principles of the PatchCore, DINO, and autoencoder pathways. It also introduces the two engineering principles---preprocessing parity and score calibration---that make the ensemble reliable, and lists the software tools used.
 
-\section{Contents of this chapter}
+\section{The Anomaly-Detection Paradigm}
 
-This chapter should discuss about the prerequisite learnings before the execution of the project. Organise and elaborate the theory and necessary fundamentals required for the execution of the project. You can use \verb|\subsections| and \verb|subsubsections| in this chapter.
-\section{Contents of this chapter}
-If a specific programming language is required for the project, a section can be allotted in this chapter to discuss it. 
-\section{Contents of this chapter}
-Tools used could be another possible section to discuss about the software tools used in the work. 
-\section{Contents of this chapter}
-The details in this chapter can be added in consultation with the project guide. For an internship based projects, subsections can be modified accordingly. 
+Supervised defect classifiers learn a boundary between ``good'' and each known ``defect'' class, and therefore require labelled examples of every defect. Anomaly detection instead models only the distribution of normal data $p(\mathbf{x})$ and declares a sample anomalous when it lies in a low-density region. For fabric inspection this is decisive: defect types are open-ended and evolve, whereas defect-free cloth is abundant and cheap to collect. All three detectors in this work are trained (or fitted) exclusively on defect-free fabric and produce a scalar anomaly score whose magnitude reflects the deviation from normality.
 
-\section{Use of Acronyms and Glossaries}
-Acronyms are nothing but the short form of regular repeated word. Say for example, you have a repeat word "Integrated Circuits" and you want to use a short form for it as "IC". For which you have to first define the word and use it wherever you wanted to refer it.
+\section{The Vision Transformer}
 
-First, let's look at the definition, which has to be entered in \texttt{Glossaries.tex} under \texttt{CoverPages} directory.
-\begin{verbatim}
-%\newacronym{<Ref>}{<Short-Form>}{<Expanded word>}
-\newacronym{ic}{IC}{Integrated Circuits}
-\end{verbatim}
-In order to use the defined acronym, use the commands \verb|\gls{<Ref>}| as shown below
+The Vision Transformer (ViT)~\cite{dosovitskiy2021vit} treats an image as a sequence of fixed-size patches. Each patch is linearly embedded, augmented with a positional encoding and a learnable class token, and processed by a stack of transformer blocks. The core operation is scaled dot-product self-attention~\cite{vaswani2017attention},
+\[
+\text{Attention}(\mathbf{Q},\mathbf{K},\mathbf{V}) = \text{softmax}\!\left(\frac{\mathbf{Q}\mathbf{K}^\top}{\sqrt{d_k}}\right)\mathbf{V},
+\]
+which lets every patch attend to every other patch, capturing the long-range texture dependencies that characterize woven fabric. All three detector pathways use a ViT backbone, differing only in how the resulting representations are turned into an anomaly score.
 
-As an example, call the definition with \verb|\gls{ic}| and the outcome of it is reflected as, \gls{ic}.
+\section{Detection Pathways}
 
-Note: For the First time, the expanded form appears along with the Short-form definition inside parenthesis. But when the \verb|\gls{}| is repeated, only Short-form appears inside the parenthesis.
+\subsection{PatchCore: Memory-Bank Density Estimation}
+PatchCore~\cite{roth2022patchcore} extracts intermediate ViT patch features from defect-free images and stores a coreset-subsampled subset in a memory bank. At inference, each patch's anomaly score is its Euclidean distance to the nearest memory-bank entry; the image score is the maximum over patches. This pathway excels at localizing small, local texture deviations such as stains and thread breaks.
 
-Now, let's look at the definition of symbols. Follow the syntax to define the symbol first, inside \texttt{Glossaries.tex} under \texttt{CoverPages} directory.
-\begin{verbatim}
-%\newglossaryentry{<Ref>}{name=<Symbol>, description={<description about the symbol>}, type=<List type>}
-\newglossaryentry{rc}{name=$\tau$, description={Time constant}, type=symbolList}
-\end{verbatim}
+\subsection{DINO: Self-Supervised Attention Features}
+DINO~\cite{caron2021dino} trains a ViT by self-distillation, without labels, and its attention maps encode semantic structure. UltraFabric-Vision uses DINO patch tokens as descriptors for the same nearest-neighbour scoring as PatchCore, and additionally visualizes the final-layer attention heads for interpretability. Because its features arise from a different training objective, DINO responds to different defects---particularly global structural disruptions such as tears. Figure~\ref{fig:attn} shows the six self-attention heads of the final DINO layer on a defective sample; the heads specialize on different spatial-frequency structures, and their aggregate concentrates on the defect region, providing operators with an interpretable view of what the model attends to.
 
-As an example, the rate of change is defined with \verb|\gls{rc}| and the outcome of it is reflected as, the rate of change is defined with \gls{rc}.
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.9\textwidth]{Figures/attention_heads.png}
+\caption{The six DINO self-attention heads for a defective fabric sample. Individual heads emphasize distinct thread orientations and texture patterns, and their combination highlights the anomalous region.}
+\label{fig:attn}
+\end{figure}
 
-\vspace{0.75cm}
+\subsection{ViT Autoencoder: Reconstruction Error}
+The Vision Transformer Autoencoder learns to reconstruct defect-free fabric through a transformer encoder--decoder bottleneck, minimizing mean-squared reconstruction error. Anomalous regions, absent from the learned manifold, reconstruct poorly and produce high error, giving a third, orthogonal detection signal.
 
- \textbf{The chapters should not end with figures, instead bring the paragraph explaining about the figure at the end followed by a summary paragraph.}
+\section{Two Engineering Principles}
 
-After elaborating the various sections of the chapter (From Chapter 2 onwards), a summary paragraph should be written discussing the highlights of that particular chapter. This summary paragraph should not be numbered separately. This paragraph should connect the present chapter to the next chapter.
+\subsection{Preprocessing Parity}
+Because memory-bank and reconstruction detectors measure distance from a stored notion of ``normal,'' any image transform applied before inference becomes part of that definition. If the transform used at inference differs from the one used when the models were fitted, even normal cloth is scored as anomalous. Enforcing byte-level parity between the fit-time and inference-time preprocessing is thus a correctness requirement, not a tuning choice.
+
+\subsection{Score Calibration}
+The three detectors emit scores on incomparable scales (Euclidean distance in different feature spaces versus per-pixel reconstruction error). Standardizing each score against its own normal-data mean and standard deviation converts them to z-scores with a common ``standard deviations above normal'' meaning, so that a uniform average is meaningful and a single interpretable threshold suffices.
+
+\section{Tools Used}
+
+The system is implemented in Python with PyTorch~\cite{paszke2019pytorch} for model definition and GPU tensor operations, \texttt{timm} for the ViT backbones, and OpenCV and NumPy for image handling. Scikit-learn provides evaluation metrics. The production service uses FastAPI with a Uvicorn server for REST and WebSocket endpoints, and is containerized with Docker for GPU deployment. A React/Vite dashboard provides live visualization.
+
+Together these fundamentals---the anomaly-detection paradigm, the shared ViT backbone, three complementary scoring mechanisms, and the parity and calibration principles---define the building blocks from which the system architecture in Chapter~3 is assembled.

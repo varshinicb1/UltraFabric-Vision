@@ -1,19 +1,36 @@
-\chapter{Implementation of Pipelined Analog to Digital converter}
+\chapter{Implementation}
 
-Every chapter should start with an introduction paragraph. This paragraph should brief about the flow of the chapter. This introduction can be limited within 4 to 5 sentences. The chapter heading should be appropriately modified (a sample heading is shown for this chapter).But don't start the introduction paragraph in the chapters like "This chapter deals with....". Instead you should bring in the highlights of the chapter in the introduction paragraph. 
+This chapter describes how the design is realized in software. It covers the correction of a preprocessing defect that had crippled accuracy, the migration of both nearest-neighbour searches to the GPU, the calibration procedure and its persistence, the mixed-precision and single-pass optimizations, and the deployable service stack together with its automated tests.
 
-\section{Contents of this chapter}
-This chapter should elaborate the following in detail.
-\begin{enumerate}
-\item Implementation details for hardware based projects
-\item Top level Design for software based projects
-\end{enumerate}
+\section{Correcting the Preprocessing Defect}
 
-You can add sections and sub sections to elaborate your project work done.
+The most consequential implementation change was diagnostic rather than additive. The original pipeline applied contrast-limited histogram equalization, Gaussian blur, and aspect-preserving letterbox padding to each frame at inference, whereas the memory banks and autoencoder had been fitted on plainly resized, normalized images. This mismatch placed every inference frame in a different statistical distribution from the fitted ``normal'' set, so even defect-free cloth scored as anomalous. The fix was to route both fitting and inference through one shared preprocessing function---a plain resize to $224\times224$ followed by ImageNet normalization, executed on-device---restoring the distributional consistency the detectors assume.
 
-\vspace{0.75cm}
+\section{GPU-Accelerated Scoring}
 
- \textbf{The chapters should not end with figures, instead bring the paragraph explaining about the figure at the end followed by a summary paragraph.}
+Both memory-bank searches were unified onto a single GPU kernel. The DINO pathway had used a CPU-resident \texttt{scikit-learn} nearest-neighbour index, evaluating hundreds of query patches against up to ten thousand memory vectors on every frame---the dominant latency cost. This was replaced with PyTorch's \texttt{torch.cdist}, which computes the full pairwise-distance matrix in one CUDA kernel, followed by a row-wise minimum. The memory banks are converted to GPU tensors once at load time and retained across frames, eliminating per-frame host-to-device transfer.
 
-After elaborating the various sections of the chapter (From Chapter 2 onwards), a summary paragraph should be written discussing the highlights of that particular chapter. This summary paragraph should not be numbered separately. This paragraph should connect the present chapter to the next chapter. 
+\section{Calibration Procedure}
 
+Calibration is implemented as a lightweight pass over the defect-free set. Each detector scores every calibration image; the mean and standard deviation of these raw scores are recorded as the detector's calibration constants and stored alongside its weights. A separate evaluation over a labelled validation split fixes the Youden-optimal fused threshold, which is written to a small JSON artifact. Because calibration only performs forward passes, it completes quickly and can be re-run on factory fabric without retraining the models. Figure~\ref{fig:pipeline} summarizes the offline workflow: the two memory banks are fitted, the autoencoder is trained, and calibration statistics and the threshold are computed and persisted, all under the shared preprocessing routine.
+
+\begin{figure}[htb]
+\centering
+\includegraphics[width=0.95\textwidth]{Figures/training_pipeline.png}
+\caption{Offline preparation pipeline: PatchCore and DINO memory-bank construction, ViT-Autoencoder training, and calibration/evaluation, producing the deployable weights and calibration artifact.}
+\label{fig:pipeline}
+\end{figure}
+
+\section{Mixed Precision, Fused Attention, and Warm-up}
+
+Three further optimizations reduce per-frame cost. The transformer backbones run under fp16 automatic mixed precision, while distance computations are kept in fp32 to preserve nearest-neighbour ordering. The DINO pathway captures its final-layer attention during the same forward pass used for scoring, avoiding a second full traversal of the network. A dummy frame is processed at start-up so that lazy CUDA initialization and kernel autotuning are paid once rather than on the first production frame.
+
+\section{Service Stack}
+
+The calibrated engine is exposed through three thin interfaces that share one implementation. A FastAPI application provides REST endpoints for single-image and batch inference and WebSocket endpoints for live camera streaming, with optional API-key authentication and health and version endpoints for orchestration. An embeddable \texttt{InferenceEngine} class loads the models once and scores frames directly, for integration into edge or line-control software. A batch command-line tool scores folders of images and emits CSV or JSON reports for manufacturing-execution systems. Runtime configuration is entirely environment-driven, and a GPU Docker image based on an official CUDA PyTorch runtime packages the service for deployment.
+
+\section{Verification}
+
+Correctness is validated by an automated end-to-end test suite exercising both the embeddable SDK and the full HTTP path---model loading, preprocessing, fusion, thresholding, and the response contract---on real good and defective samples, including malformed-input handling. All tests pass, confirming that the deployed service reproduces the calibrated decision behaviour.
+
+In summary, the implementation turns the design into a correct, fast, and deployable system: a preprocessing fix restores accuracy, GPU-native scoring removes the latency bottleneck, calibration yields a portable decision boundary, and the service stack makes the model straightforward to integrate. The quantitative outcomes of these changes are reported in Chapter~5.

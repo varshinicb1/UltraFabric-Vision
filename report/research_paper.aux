@@ -43,130 +43,139 @@
 \@writefile{toc}{\contentsline {section}{\numberline {III}System Architecture and Methodology}{2}{section.3}\protected@file@percent }
 \newlabel{sec:method}{{III}{2}{System Architecture and Methodology}{section.3}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Overall Framework}{2}{subsection.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Input Preprocessing Pipeline}{2}{subsection.3.2}\protected@file@percent }
 \citation{dosovitskiy2021vit}
 \citation{caron2021emerging}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces End-to-end system architecture showing the three parallel detection pathways and their integration. Input frames are preprocessed through CLAHE enhancement, Gaussian blur, and ImageNet normalization before being passed to all three models simultaneously. The individual anomaly scores and heatmaps are fused through weighted ensemble averaging.}}{3}{figure.caption.2}\protected@file@percent }
-\newlabel{fig:architecture}{{2}{3}{End-to-end system architecture showing the three parallel detection pathways and their integration. Input frames are preprocessed through CLAHE enhancement, Gaussian blur, and ImageNet normalization before being passed to all three models simultaneously. The individual anomaly scores and heatmaps are fused through weighted ensemble averaging}{figure.caption.2}{}}
-\newlabel{eq:normalize}{{1}{3}{Input Preprocessing Pipeline}{equation.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces End-to-end system architecture showing the three parallel detection pathways and their integration. Input frames pass through a single preprocessing routine---resize to $224\times 224$ followed by ImageNet normalization---that is shared byte-for-byte with the routine used when the memory banks and autoencoder were fit. The three detectors emit raw anomaly scores that are standardized to a common z-score scale and fused by weighted averaging.}}{3}{figure.caption.2}\protected@file@percent }
+\newlabel{fig:architecture}{{2}{3}{End-to-end system architecture showing the three parallel detection pathways and their integration. Input frames pass through a single preprocessing routine---resize to $224\times 224$ followed by ImageNet normalization---that is shared byte-for-byte with the routine used when the memory banks and autoencoder were fit. The three detectors emit raw anomaly scores that are standardized to a common z-score scale and fused by weighted averaging}{figure.caption.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Input Preprocessing and Train--Inference Parity}{3}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:preproc}{{\mbox  {III-B}}{3}{Input Preprocessing and Train--Inference Parity}{subsection.3.2}{}}
+\newlabel{eq:parity}{{1}{3}{Input Preprocessing and Train--Inference Parity}{equation.1}{}}
+\newlabel{eq:normalize}{{2}{3}{Input Preprocessing and Train--Inference Parity}{equation.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}PatchCore Density Estimation Pathway}{3}{subsection.3.3}\protected@file@percent }
 \newlabel{sec:patchcore}{{\mbox  {III-C}}{3}{PatchCore Density Estimation Pathway}{subsection.3.3}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}1}Feature Extraction}{3}{subsubsection.3.3.1}\protected@file@percent }
-\newlabel{eq:vit_embed}{{2}{3}{Feature Extraction}{equation.2}{}}
-\newlabel{eq:vit_features}{{3}{3}{Feature Extraction}{equation.3}{}}
-\newlabel{eq:spatial_feat}{{4}{3}{Feature Extraction}{equation.4}{}}
-\newlabel{eq:concat_feat}{{5}{3}{Feature Extraction}{equation.5}{}}
+\newlabel{eq:vit_embed}{{3}{3}{Feature Extraction}{equation.3}{}}
+\newlabel{eq:vit_features}{{4}{3}{Feature Extraction}{equation.4}{}}
+\newlabel{eq:spatial_feat}{{5}{3}{Feature Extraction}{equation.5}{}}
+\newlabel{eq:concat_feat}{{6}{3}{Feature Extraction}{equation.6}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}2}Memory Bank Construction}{3}{subsubsection.3.3.2}\protected@file@percent }
-\newlabel{eq:feature_set}{{6}{3}{Memory Bank Construction}{equation.6}{}}
-\newlabel{eq:coreset}{{7}{3}{Memory Bank Construction}{equation.7}{}}
+\newlabel{eq:feature_set}{{7}{3}{Memory Bank Construction}{equation.7}{}}
+\newlabel{eq:coreset}{{8}{3}{Memory Bank Construction}{equation.8}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-C}3}Anomaly Scoring}{3}{subsubsection.3.3.3}\protected@file@percent }
-\newlabel{eq:dino_score}{{8}{3}{Anomaly Scoring}{equation.8}{}}
-\newlabel{eq:cdist}{{9}{3}{Anomaly Scoring}{equation.9}{}}
-\newlabel{eq:max_score}{{10}{3}{Anomaly Scoring}{equation.10}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}DINO-v2 Attention Pathway}{3}{subsection.3.4}\protected@file@percent }
-\newlabel{sec:dino}{{\mbox  {III-D}}{3}{DINO-v2 Attention Pathway}{subsection.3.4}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}1}Self-Supervised Vision Transformer}{3}{subsubsection.3.4.1}\protected@file@percent }
-\newlabel{eq:dino_embed}{{11}{3}{Self-Supervised Vision Transformer}{equation.11}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}2}Multi-Head Self-Attention Extraction}{3}{subsubsection.3.4.2}\protected@file@percent }
-\newlabel{eq:attention}{{12}{3}{Multi-Head Self-Attention Extraction}{equation.12}{}}
-\newlabel{eq:multihead}{{13}{3}{Multi-Head Self-Attention Extraction}{equation.13}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Visualization of the six DINO-v2 self-attention heads for a defective fabric sample. Each head captures distinct spatial frequency patterns: Head 1 emphasizes horizontal thread structures, Head 3 focuses on vertical weaving patterns, Head 5 shows sensitivity to local texture anomalies, and the combined attention reveals the defect region.}}{4}{figure.caption.3}\protected@file@percent }
-\newlabel{fig:attention}{{3}{4}{Visualization of the six DINO-v2 self-attention heads for a defective fabric sample. Each head captures distinct spatial frequency patterns: Head 1 emphasizes horizontal thread structures, Head 3 focuses on vertical weaving patterns, Head 5 shows sensitivity to local texture anomalies, and the combined attention reveals the defect region}{figure.caption.3}{}}
-\newlabel{eq:attn_maps}{{14}{4}{Multi-Head Self-Attention Extraction}{equation.14}{}}
+\newlabel{eq:dino_score}{{9}{3}{Anomaly Scoring}{equation.9}{}}
+\newlabel{eq:cdist}{{10}{3}{Anomaly Scoring}{equation.10}{}}
+\newlabel{eq:max_score}{{11}{3}{Anomaly Scoring}{equation.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}DINO-v2 Attention Pathway}{4}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:dino}{{\mbox  {III-D}}{4}{DINO-v2 Attention Pathway}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}1}Self-Supervised Vision Transformer}{4}{subsubsection.3.4.1}\protected@file@percent }
+\newlabel{eq:dino_embed}{{12}{4}{Self-Supervised Vision Transformer}{equation.12}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}2}Multi-Head Self-Attention Extraction}{4}{subsubsection.3.4.2}\protected@file@percent }
+\newlabel{eq:attention}{{13}{4}{Multi-Head Self-Attention Extraction}{equation.13}{}}
+\newlabel{eq:multihead}{{14}{4}{Multi-Head Self-Attention Extraction}{equation.14}{}}
+\newlabel{eq:attn_maps}{{15}{4}{Multi-Head Self-Attention Extraction}{equation.15}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-D}3}Anomaly Detection via KNN Scoring}{4}{subsubsection.3.4.3}\protected@file@percent }
-\newlabel{eq:dino_bank}{{15}{4}{Anomaly Detection via KNN Scoring}{equation.15}{}}
-\newlabel{eq:dino_knn}{{16}{4}{Anomaly Detection via KNN Scoring}{equation.16}{}}
+\newlabel{eq:dino_bank}{{16}{4}{Anomaly Detection via KNN Scoring}{equation.16}{}}
+\newlabel{eq:dino_knn}{{17}{4}{Anomaly Detection via KNN Scoring}{equation.17}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Vision Transformer Autoencoder Pathway}{4}{subsection.3.5}\protected@file@percent }
 \newlabel{sec:vae}{{\mbox  {III-E}}{4}{Vision Transformer Autoencoder Pathway}{subsection.3.5}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-E}1}Architecture Design}{4}{subsubsection.3.5.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces ViT Autoencoder training convergence over 15 epochs. Both training and validation MSE loss decrease exponentially from 1.95 to 0.034, with final validation loss of 0.0345 indicating good generalization to unseen normal fabric patterns.}}{4}{figure.caption.4}\protected@file@percent }
-\newlabel{fig:convergence}{{4}{4}{ViT Autoencoder training convergence over 15 epochs. Both training and validation MSE loss decrease exponentially from 1.95 to 0.034, with final validation loss of 0.0345 indicating good generalization to unseen normal fabric patterns}{figure.caption.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Visualization of the six DINO-v2 self-attention heads for a defective fabric sample. Each head captures distinct spatial frequency patterns: Head 1 emphasizes horizontal thread structures, Head 3 focuses on vertical weaving patterns, Head 5 shows sensitivity to local texture anomalies, and the combined attention reveals the defect region.}}{4}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:attention}{{3}{4}{Visualization of the six DINO-v2 self-attention heads for a defective fabric sample. Each head captures distinct spatial frequency patterns: Head 1 emphasizes horizontal thread structures, Head 3 focuses on vertical weaving patterns, Head 5 shows sensitivity to local texture anomalies, and the combined attention reveals the defect region}{figure.caption.3}{}}
 \@writefile{toc}{\contentsline {paragraph}{\numberline {\mbox  {III-E}1a}Encoder:}{4}{paragraph.3.5.1.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{\numberline {\mbox  {III-E}1b}Decoder:}{4}{paragraph.3.5.1.2}\protected@file@percent }
-\newlabel{eq:reconstruct}{{24}{4}{Decoder:}{equation.24}{}}
+\newlabel{eq:reconstruct}{{25}{4}{Decoder:}{equation.25}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-E}2}Training Objective}{4}{subsubsection.3.5.2}\protected@file@percent }
-\newlabel{eq:mse_loss}{{25}{4}{Training Objective}{equation.25}{}}
+\newlabel{eq:mse_loss}{{26}{4}{Training Objective}{equation.26}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces ViT Autoencoder training convergence over 15 epochs. Both training and validation MSE loss decrease exponentially from 1.95 to 0.034, with final validation loss of 0.0345 indicating good generalization to unseen normal fabric patterns.}}{5}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:convergence}{{4}{5}{ViT Autoencoder training convergence over 15 epochs. Both training and validation MSE loss decrease exponentially from 1.95 to 0.034, with final validation loss of 0.0345 indicating good generalization to unseen normal fabric patterns}{figure.caption.4}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-E}3}Anomaly Detection via Reconstruction Error}{5}{subsubsection.3.5.3}\protected@file@percent }
-\newlabel{eq:error_map}{{26}{5}{Anomaly Detection via Reconstruction Error}{equation.26}{}}
-\newlabel{eq:vae_score}{{27}{5}{Anomaly Detection via Reconstruction Error}{equation.27}{}}
+\newlabel{eq:error_map}{{27}{5}{Anomaly Detection via Reconstruction Error}{equation.27}{}}
+\newlabel{eq:vae_score}{{28}{5}{Anomaly Detection via Reconstruction Error}{equation.28}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-F}}Ensemble Fusion Mechanism}{5}{subsection.3.6}\protected@file@percent }
 \newlabel{sec:fusion}{{\mbox  {III-F}}{5}{Ensemble Fusion Mechanism}{subsection.3.6}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}1}Weighted Score and Heatmap Fusion}{5}{subsubsection.3.6.1}\protected@file@percent }
-\newlabel{eq:ensemble}{{29}{5}{Weighted Score and Heatmap Fusion}{equation.29}{}}
-\newlabel{eq:heatmap_norm}{{30}{5}{Weighted Score and Heatmap Fusion}{equation.30}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}2}Decision Threshold Calibration}{5}{subsubsection.3.6.2}\protected@file@percent }
-\newlabel{eq:decision}{{31}{5}{Decision Threshold Calibration}{equation.31}{}}
-\newlabel{eq:youden}{{32}{5}{Decision Threshold Calibration}{equation.32}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}3}Defect Localization}{5}{subsubsection.3.6.3}\protected@file@percent }
-\newlabel{eq:bboxes}{{33}{5}{Defect Localization}{equation.33}{}}
-\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces GPU-Accelerated Batch Anomaly Scoring}}{5}{algorithm.1}\protected@file@percent }
-\newlabel{alg:gpu_scoring}{{1}{5}{GPU-Accelerated Batch Anomaly Scoring}{algorithm.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Training and evaluation pipeline showing the four phases: (1) PatchCore memory bank construction, (2) DINO memory bank construction, (3) ViT Autoencoder training, and (4) comprehensive evaluation with PDF report generation.}}{5}{figure.caption.5}\protected@file@percent }
-\newlabel{fig:training}{{5}{5}{Training and evaluation pipeline showing the four phases: (1) PatchCore memory bank construction, (2) DINO memory bank construction, (3) ViT Autoencoder training, and (4) comprehensive evaluation with PDF report generation}{figure.caption.5}{}}
+\newlabel{sec:calibration}{{\mbox  {III-F}1}{5}{Per-Detector Score Calibration}{subsubsection.3.6.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}1}Per-Detector Score Calibration}{5}{subsubsection.3.6.1}\protected@file@percent }
+\newlabel{eq:calib_stats}{{29}{5}{Per-Detector Score Calibration}{equation.29}{}}
+\newlabel{eq:zscore}{{30}{5}{Per-Detector Score Calibration}{equation.30}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}2}Weighted Score and Heatmap Fusion}{5}{subsubsection.3.6.2}\protected@file@percent }
+\newlabel{eq:ensemble}{{32}{5}{Weighted Score and Heatmap Fusion}{equation.32}{}}
+\newlabel{eq:heatmap_norm}{{33}{5}{Weighted Score and Heatmap Fusion}{equation.33}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}3}Decision Threshold Calibration}{5}{subsubsection.3.6.3}\protected@file@percent }
+\newlabel{eq:decision}{{34}{5}{Decision Threshold Calibration}{equation.34}{}}
+\newlabel{eq:youden}{{35}{5}{Decision Threshold Calibration}{equation.35}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-F}4}Defect Localization}{5}{subsubsection.3.6.4}\protected@file@percent }
+\newlabel{eq:bboxes}{{36}{5}{Defect Localization}{equation.36}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-G}}Real-Time Inference Optimization}{5}{subsection.3.7}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-G}1}GPU-Accelerated Nearest Neighbor Search}{5}{subsubsection.3.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-G}2}Memory Management}{5}{subsubsection.3.7.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-H}}Pipeline Overview}{5}{subsection.3.8}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Synthetic fabric dataset composition used for training and evaluation.}}{6}{table.caption.6}\protected@file@percent }
-\newlabel{tab:dataset}{{I}{6}{Synthetic fabric dataset composition used for training and evaluation}{table.caption.6}{}}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces GPU-Accelerated Batch Anomaly Scoring}}{6}{algorithm.1}\protected@file@percent }
+\newlabel{alg:gpu_scoring}{{1}{6}{GPU-Accelerated Batch Anomaly Scoring}{algorithm.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-G}2}Mixed-Precision and Fused Attention}{6}{subsubsection.3.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-G}3}Memory Management}{6}{subsubsection.3.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-H}}Pipeline Overview}{6}{subsection.3.8}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-I}}Deployment Architecture}{6}{subsection.3.9}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {IV}Experimental Setup}{6}{section.4}\protected@file@percent }
 \newlabel{sec:experiments}{{IV}{6}{Experimental Setup}{section.4}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Datasets}{6}{subsection.4.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Training and evaluation pipeline showing the four phases: (1) PatchCore memory bank construction, (2) DINO memory bank construction, (3) ViT Autoencoder training, and (4) comprehensive evaluation with PDF report generation.}}{6}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:training}{{5}{6}{Training and evaluation pipeline showing the four phases: (1) PatchCore memory bank construction, (2) DINO memory bank construction, (3) ViT Autoencoder training, and (4) comprehensive evaluation with PDF report generation}{figure.caption.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Synthetic fabric dataset composition used for training and evaluation.}}{6}{table.caption.6}\protected@file@percent }
+\newlabel{tab:dataset}{{I}{6}{Synthetic fabric dataset composition used for training and evaluation}{table.caption.6}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Implementation Details}{6}{subsection.4.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Evaluation Metrics}{6}{subsection.4.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Per-model detection performance. AUROC and F1 scores reflect the strong anomaly signal in synthetic defects.}}{6}{table.caption.7}\protected@file@percent }
-\newlabel{tab:results}{{II}{6}{Per-model detection performance. AUROC and F1 scores reflect the strong anomaly signal in synthetic defects}{table.caption.7}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Per-model anomaly score statistics for normal and defective samples. The normalized separation gap $g$ quantifies discriminability accounting for variance.}}{6}{table.caption.8}\protected@file@percent }
-\newlabel{tab:score_stats}{{III}{6}{Per-model anomaly score statistics for normal and defective samples. The normalized separation gap $g$ quantifies discriminability accounting for variance}{table.caption.8}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {V}Results and Analysis}{6}{section.5}\protected@file@percent }
-\newlabel{sec:results}{{V}{6}{Results and Analysis}{section.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Detection Performance}{6}{subsection.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Score Distribution and Model Diversity Analysis}{6}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {V-B}1}Bimodal Response in ViT-AE}{6}{subsubsection.5.2.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Anomaly score distributions for normal (blue) and defective (red) samples. ViT-AE shows a distinctive bimodal defect distribution, revealing sensitivity to two distinct defect classes.}}{7}{figure.caption.9}\protected@file@percent }
-\newlabel{fig:scores}{{6}{7}{Anomaly score distributions for normal (blue) and defective (red) samples. ViT-AE shows a distinctive bimodal defect distribution, revealing sensitivity to two distinct defect classes}{figure.caption.9}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Per-model detection performance. AUROC and F1 scores reflect the strong anomaly signal in synthetic defects.}}{7}{table.caption.7}\protected@file@percent }
+\newlabel{tab:results}{{II}{7}{Per-model detection performance. AUROC and F1 scores reflect the strong anomaly signal in synthetic defects}{table.caption.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Per-model anomaly score statistics for normal and defective samples. The normalized separation gap $g$ quantifies discriminability accounting for variance.}}{7}{table.caption.8}\protected@file@percent }
+\newlabel{tab:score_stats}{{III}{7}{Per-model anomaly score statistics for normal and defective samples. The normalized separation gap $g$ quantifies discriminability accounting for variance}{table.caption.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Results and Analysis}{7}{section.5}\protected@file@percent }
+\newlabel{sec:results}{{V}{7}{Results and Analysis}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Detection Performance}{7}{subsection.5.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Calibrated ensemble (z-score) distributions for normal (blue) and defective (red) test samples, with the Youden-optimal decision threshold $\tau = 17.3$ marked. Standardization places defect-free cloth in a tight cluster near zero, while defects spread to much larger values, giving a wide, unambiguous margin at the threshold.}}{7}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:scores}{{6}{7}{Calibrated ensemble (z-score) distributions for normal (blue) and defective (red) test samples, with the Youden-optimal decision threshold $\tau = 17.3$ marked. Standardization places defect-free cloth in a tight cluster near zero, while defects spread to much larger values, giving a wide, unambiguous margin at the threshold}{figure.caption.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Score Distribution and Model Diversity Analysis}{7}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {V-B}1}Bimodal Response in ViT-AE}{7}{subsubsection.5.2.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {V-B}2}Cross-Model Correlation Analysis}{7}{subsubsection.5.2.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {V-B}3}Normalized Separation Analysis}{7}{subsubsection.5.2.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Ensemble confusion matrix at Youden-optimal threshold ($\tau = 31.87$). All 30 normal and 30 defect samples correctly classified.}}{7}{figure.caption.10}\protected@file@percent }
-\newlabel{fig:cm}{{7}{7}{Ensemble confusion matrix at Youden-optimal threshold ($\tau = 31.87$). All 30 normal and 30 defect samples correctly classified}{figure.caption.10}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-C}}Confusion Matrix and Classification Metrics}{7}{subsection.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-D}}Feature Space Visualization via t-SNE}{7}{subsection.5.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-E}}Qualitative Analysis and Ablation Study}{7}{subsection.5.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Ensemble confusion matrix at the Youden-optimal threshold ($\tau = 17.31$) on the calibrated z-score scale. All 30 normal and 30 defect samples are correctly classified.}}{8}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:cm}{{7}{8}{Ensemble confusion matrix at the Youden-optimal threshold ($\tau = 17.31$) on the calibrated z-score scale. All 30 normal and 30 defect samples are correctly classified}{figure.caption.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-C}}Confusion Matrix and Classification Metrics}{8}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-D}}Feature Space Visualization via t-SNE}{8}{subsection.5.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-E}}Qualitative Analysis and Ablation Study}{8}{subsection.5.5}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces t-SNE visualization of DINO-v2 patch-level feature embeddings. Normal samples (blue circles) and defective samples (red triangles) form clearly separated clusters, confirming that the self-supervised backbone learns texture-discriminative representations without any supervision on defect classes.}}{8}{figure.caption.11}\protected@file@percent }
 \newlabel{fig:tsne}{{8}{8}{t-SNE visualization of DINO-v2 patch-level feature embeddings. Normal samples (blue circles) and defective samples (red triangles) form clearly separated clusters, confirming that the self-supervised backbone learns texture-discriminative representations without any supervision on defect classes}{figure.caption.11}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-F}}Error Analysis}{8}{subsection.5.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-G}}Inference Latency and Memory Bank Analysis}{8}{subsection.5.7}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Per-component inference latency comparison between CPU (Intel i7-13620H) and GPU (NVIDIA RTX 4050) platforms.}}{8}{table.caption.14}\protected@file@percent }
-\newlabel{tab:latency}{{IV}{8}{Per-component inference latency comparison between CPU (Intel i7-13620H) and GPU (NVIDIA RTX 4050) platforms}{table.caption.14}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-H}}Ablation Study: Contribution of Individual Components}{8}{subsection.5.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion}{8}{section.6}\protected@file@percent }
-\newlabel{sec:discussion}{{VI}{8}{Discussion}{section.6}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-A}}Practical Deployment Considerations}{8}{subsection.6.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-A}1}Threshold Calibration}{8}{subsubsection.6.1.1}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Qualitative comparison of individual model heatmaps and ensemble fusion for four fabric samples. Rows 1--2: normal fabric. Rows 3--4: defective fabric. Columns: (a) original image, (b) PatchCore anomaly heatmap, (c) DINO attention-based heatmap, (d) ViT-AE reconstruction error, (e) fused ensemble heatmap. The ensemble effectively combines complementary signals.}}{9}{figure.caption.12}\protected@file@percent }
 \newlabel{fig:comparison}{{9}{9}{Qualitative comparison of individual model heatmaps and ensemble fusion for four fabric samples. Rows 1--2: normal fabric. Rows 3--4: defective fabric. Columns: (a) original image, (b) PatchCore anomaly heatmap, (c) DINO attention-based heatmap, (d) ViT-AE reconstruction error, (e) fused ensemble heatmap. The ensemble effectively combines complementary signals}{figure.caption.12}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Error analysis showing best and worst-case detection for normal and defective samples. Top row: original images. Bottom row: ensemble anomaly heatmap overlay (jet colormap). Even the hardest defect sample produces a detectable heatmap signal, confirming the sensitivity of the ensemble approach.}}{9}{figure.caption.13}\protected@file@percent }
 \newlabel{fig:error}{{10}{9}{Error analysis showing best and worst-case detection for normal and defective samples. Top row: original images. Bottom row: ensemble anomaly heatmap overlay (jet colormap). Even the hardest defect sample produces a detectable heatmap signal, confirming the sensitivity of the ensemble approach}{figure.caption.13}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-A}2}Hardware Requirements}{9}{subsubsection.6.1.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Memory bank size vs. detection performance and computational cost. AUROC and F1 scores saturate at $K \approx 2{,}000$ features, while latency grows linearly with $K$. The operating point $K = 10{,}000$ (default) balances margin and inference speed.}}{9}{figure.caption.15}\protected@file@percent }
-\newlabel{fig:mem}{{11}{9}{Memory bank size vs. detection performance and computational cost. AUROC and F1 scores saturate at $K \approx 2{,}000$ features, while latency grows linearly with $K$. The operating point $K = 10{,}000$ (default) balances margin and inference speed}{figure.caption.15}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-B}}Limitations and Future Work}{9}{subsection.6.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-B}1}Current Limitations}{9}{subsubsection.6.2.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Per-component inference latency. CPU end-to-end is measured on an Intel i7-13620H; the per-component CPU split and all GPU (NVIDIA RTX 4050) figures are projections pending on-hardware benchmarking.}}{9}{table.caption.14}\protected@file@percent }
+\newlabel{tab:latency}{{IV}{9}{Per-component inference latency. CPU end-to-end is measured on an Intel i7-13620H; the per-component CPU split and all GPU (NVIDIA RTX 4050) figures are projections pending on-hardware benchmarking}{table.caption.14}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Memory bank size vs. detection performance and computational cost. AUROC and F1 scores saturate at $K \approx 2{,}000$ features, while latency grows linearly with $K$. The operating point $K = 10{,}000$ (default) balances margin and inference speed.}}{10}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:mem}{{11}{10}{Memory bank size vs. detection performance and computational cost. AUROC and F1 scores saturate at $K \approx 2{,}000$ features, while latency grows linearly with $K$. The operating point $K = 10{,}000$ (default) balances margin and inference speed}{figure.caption.15}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Ablation study comparing AUROC and Average Precision across individual models and the full ensemble. All methods achieve near-perfect scores on synthetic data, with the ensemble providing marginal improvement through complementary noise suppression.}}{10}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:ablation}{{12}{10}{Ablation study comparing AUROC and Average Precision across individual models and the full ensemble. All methods achieve near-perfect scores on synthetic data, with the ensemble providing marginal improvement through complementary noise suppression}{figure.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-H}}Ablation Study: Contribution of Individual Components}{10}{subsection.5.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion}{10}{section.6}\protected@file@percent }
+\newlabel{sec:discussion}{{VI}{10}{Discussion}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-A}}Practical Deployment Considerations}{10}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-A}1}Threshold Calibration}{10}{subsubsection.6.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-A}2}Hardware Requirements}{10}{subsubsection.6.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-B}}Limitations and Future Work}{10}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-B}1}Current Limitations}{10}{subsubsection.6.2.1}\protected@file@percent }
 \citation{silva2020aitex}
 \citation{bergmann2019mvtec}
 \citation{gunter2021sampling}
 \citation{liu2022efficient}
 \citation{park2023chexpert}
-\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Ablation study comparing AUROC and Average Precision across individual models and the full ensemble. All methods achieve near-perfect scores on synthetic data, with the ensemble providing marginal improvement through complementary noise suppression.}}{10}{figure.caption.16}\protected@file@percent }
-\newlabel{fig:ablation}{{12}{10}{Ablation study comparing AUROC and Average Precision across individual models and the full ensemble. All methods achieve near-perfect scores on synthetic data, with the ensemble providing marginal improvement through complementary noise suppression}{figure.caption.16}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-B}2}Future Research Directions}{10}{subsubsection.6.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{10}{section.7}\protected@file@percent }
-\newlabel{sec:conclusion}{{VII}{10}{Conclusion}{section.7}{}}
-\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  A: Derivation of Ensemble Fusion Weights}{10}{section*.17}\protected@file@percent }
-\newlabel{apx:weights}{{A}{10}{\appendixname \nobreakspace \thesectiondis \\* Derivation of Ensemble Fusion Weights}{section*.17}{}}
-\newlabel{eq:bayes_ensemble}{{34}{10}{\appendixname \nobreakspace \thesectiondis \\* Derivation of Ensemble Fusion Weights}{equation.34}{}}
 \bibcite{kumar2019textile}{1}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {VI-B}2}Future Research Directions}{11}{subsubsection.6.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{11}{section.7}\protected@file@percent }
+\newlabel{sec:conclusion}{{VII}{11}{Conclusion}{section.7}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  A: Derivation of Ensemble Fusion Weights}{11}{section*.17}\protected@file@percent }
+\newlabel{apx:weights}{{A}{11}{\appendixname \nobreakspace \thesectiondis \\* Derivation of Ensemble Fusion Weights}{section*.17}{}}
+\newlabel{eq:bayes_ensemble}{{37}{11}{\appendixname \nobreakspace \thesectiondis \\* Derivation of Ensemble Fusion Weights}{equation.37}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  B: Computational Complexity Analysis}{11}{section*.18}\protected@file@percent }
+\newlabel{apx:complexity}{{B}{11}{\appendixname \nobreakspace \thesectiondis \\* Computational Complexity Analysis}{section*.18}{}}
 \bibcite{li2020deep}{2}
 \bibcite{liu2019fabric}{3}
 \bibcite{wang2021textile}{4}
@@ -213,7 +222,5 @@
 \bibcite{park2024onlinememory}{45}
 \bibcite{li2024coreset}{46}
 \bibcite{zhu2024temporal}{47}
-\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  B: Computational Complexity Analysis}{11}{section*.18}\protected@file@percent }
-\newlabel{apx:complexity}{{B}{11}{\appendixname \nobreakspace \thesectiondis \\* Computational Complexity Analysis}{section*.18}{}}
-\@writefile{toc}{\contentsline {section}{References}{11}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{12}{section*.19}\protected@file@percent }
 \gdef \@abspage@last{12}

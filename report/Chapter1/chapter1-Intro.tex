@@ -1,84 +1,54 @@
-\chapter{Introduction to Analog and Digital converters}
-Every chapter should start with an introduction paragraph. This paragraph should brief about the flow of the chapter. This introduction can be limited within 4 to 5 sentences. The chapter heading should be appropriately modified (a sample heading is shown for this chapter). But don't start the introduction paragraph in the chapters like "This chapter deals with....". Instead you should bring in the highlights of the chapter in the introduction paragraph.
+\chapter{Introduction}
+
+Textile manufacturing is among the oldest and largest industrial sectors, yet its quality-control practices remain heavily dependent on human visual inspection. This chapter introduces the problem of automated fabric-defect detection, surveys the relevant literature, and establishes the motivation, problem statement, and objectives of the UltraFabric-Vision project. It closes with a brief description of the methodology, the assumptions and constraints under which the work is valid, and the organization of the remainder of the report.
 
 \section[Introduction]{\textbf{Introduction}}
-The title of the project can be introduced in this section. This section should neatly elaborate the context of the project, the relevance of the area chosen and the title. You can bring a brief history and arrive at the title of the project. Use appropriate number of paragraphs within this section. 
 
-You are allowed to use figures or diagrams which can help in introducing the topic acknowledging the source. For example , if you are introducing a particular topic, an appropriate figure can be used. The figure should be referenced in the text as Figure. \ref{fig:universe} 
-\begin{figure}[htb]
-\centering
-	\includegraphics[scale=1]{Figures/universe}	
-	\caption{Sample picture of universe }
-	\label{fig:universe}
-\end{figure}
+Woven and knitted fabric is produced on high-speed looms that generate cloth at roughly 30 metres per minute. At that rate, weaving faults, stains, holes, and structural irregularities can accumulate across long rolls before an operator notices them, turning a small fault into a large financial loss. Manual inspection is fatiguing and inconsistent: reported detection rates lie between 60\% and 75\%, and inspectors cannot sustain attention at line speed~\cite{kumar2019survey}. Automated visual inspection therefore offers a direct economic benefit, provided it can operate in real time and adapt to the enormous diversity of fabrics found on a factory floor.
 
-These guidelines are provided to formally expose you to the various ethical and technical issues involved in writing up your work and the format you are required to adhere to while submitting your project report.
+Classical machine-vision approaches to fabric inspection relied on hand-crafted texture descriptors and supervised classifiers. These require large labelled datasets of defective samples, which are expensive to collect and quickly become obsolete as new defect types appear. UltraFabric-Vision instead adopts an \emph{anomaly-detection} formulation: the system learns only what defect-free fabric looks like and flags any statistically significant deviation. This removes the dependence on labelled defects and generalizes naturally to unseen fault types.
+
+The project fuses three complementary deep-learning detectors---PatchCore~\cite{roth2022patchcore}, a self-supervised DINO Vision Transformer~\cite{caron2021dino}, and a Vision Transformer Autoencoder~\cite{dosovitskiy2021vit}---into a single calibrated ensemble, and packages it as a deployable, real-time inspection service.
 
 \section[Literature Review]{\textbf{Literature Review}}
 
-A literature review is a text of a scholarly paper, which includes the current knowledge including substantive findings, as well as theoretical and methodological contributions to a particular topic. Literature reviews are secondary sources, and do not report new or original experimental work. Most often associated with academic-oriented literature, such reviews are found in academic journals, and are not to be confused with book reviews that may also appear in the same publication. Literature reviews are a basis for research in nearly every academic field . A narrow-scope literature review may be included as part of a peer-reviewed journal article presenting new research, serving to situate the current study within the body of the relevant literature and to provide context for the reader. In such a case, the review usually precedes the methodology and results sections of the work.
+Automated fabric inspection has evolved from fixed texture descriptors to learned representations. Kumar~\cite{kumar2019survey} surveys computer-vision fabric-defect methods and notes that hand-crafted features (Gabor filters, co-occurrence statistics, local binary patterns) saturate at 70--85\% accuracy because they cannot adapt to new textures. Li et al.~\cite{li2020yolo} adapted YOLOv3 with fabric-specific anchor boxes and reported 89.7\% mean average precision at 45~FPS, while Jing et al.~\cite{jing2022mobileunet} proposed Mobile-Unet, a lightweight encoder--decoder achieving 96.3\% pixel-level segmentation on denim defects. These supervised methods perform well but depend on curated defect datasets.
 
-\subsection{Sample}
-The main types of literature reviews are: evaluative, exploratory, and instrumental. A fourth type, the systematic review, is often classified separately, but is essentially a literature review focused on a research question, trying to identify, appraise, select and synthesize all high-quality research evidence and arguments relevant to that question. A meta-analysis is typically a systematic review using statistical methods to effectively combine the data used on all selected studies to produce a more reliable result.
-\subsubsection[Review types]{\textbf{Review types}}
+Industrial anomaly detection reframed the problem around normal-only training. The MVTec~AD benchmark~\cite{bergmann2019mvtec} standardized evaluation across fifteen categories. PatchCore~\cite{roth2022patchcore} builds a coreset memory bank of normal patch features and scores anomalies by nearest-neighbour distance, achieving state-of-the-art localization; PaDiM~\cite{defard2021padim} models patch features with multivariate Gaussians. In parallel, self-supervised Vision Transformers such as DINO~\cite{caron2021dino} were shown to learn semantic structure in their attention maps without any labels, a property directly useful for separating coherent texture from anomalies. The Vision Transformer~\cite{dosovitskiy2021vit}, built on the self-attention mechanism of Vaswani et al.~\cite{vaswani2017attention}, provides the backbone for both feature extraction and reconstruction-based scoring. Public fabric datasets such as AITEX~\cite{silva2020aitex} support benchmarking, though real production data remains scarce.
 
-The main types of literature reviews are: evaluative, exploratory, and instrumental. A fourth type, the systematic review, is often classified separately, but is essentially a literature review focused on a research question, trying to identify, appraise, select and synthesize all high-quality research evidence and arguments relevant to that question. A meta-analysis is typically a systematic review using statistical methods to effectively combine the data used on all selected studies to produce a more reliable result.
-
-
-\subsubsection[Process and product]{\textbf{Process and product}}
-
-Distinguish between the process of reviewing the literature and a finished work or product known as a literature review. The process of reviewing the literature is often ongoing and informs many aspects of the empirical research project. All of the latest literature should inform a research project. Scholars need to be scanning the literature long after a formal literature review product appears to be completed.
-
-\subsubsection{\textbf{Page limitation}}
-
-A careful literature review is usually 15 to 30 pages and could be longer. The process of reviewing the literature requires different kinds of activities and ways of thinking and link the activities of doing a literature review with Benjamin Bloom’s revised taxonomy of the cognitive domain (ways of thinking: remembering, understanding, applying, analysing, evaluating, and creating).
-
-This section should contain the review of the literature in the past.You should review a minimum of 10 papers from standard reference journals. Kindly avoid local conference papers and papers from predatory journals. Kindly consult with your guide and finalize papers to be considered for review before adding in this section.Report the major observations and findings from each paper in one paragraph in the format given below.
-
-proposed various techniques for adders and multipliers.Add the reference papers to the bibliography section using Jabref and cite it here using the instructions given in further chapters.
-
-
-\subsubsection{\textbf{Plagiarism}}
-
-To use someone else's exact words without quotation marks and appropriate credit, or to use the unique ideas of someone else without acknowledgement, is known as plagiarism. In publishing, plagiarism is illegal; in other circumstances, it is, at the least, unethical. You may quote or paraphrase the words or ideas of another if you document your source. Although you need not enclose the paraphrased material in quotation marks, you must document the source. 
-
-Paraphrased ideas are taken from someone else whether or not the words are identical. Paraphrasing a passage without citing the source is permissible only when the information paraphrased is common knowledge in a field. (Common knowledge refers to historical, scientific, geographical, technical, and other type of information on a topic readily available in handbooks, manuals, atlases and other references). 
-
-\subsubsection{How to add Reference}
-Use \texttt{Jabref} which will help in adding the reference in a separate file, from which one can use \verb|\citep\{\}| command to add reference. A sample, referring to a textbook would look something like this,\cite{Razavi2000}.
+The consensus from this literature is that (i) normal-only anomaly detection is the practical choice for evolving defect types, and (ii) different detection mechanisms capture different defect classes. What the literature under-emphasizes---and what this project addresses---is the engineering discipline required to make such an ensemble correct and fast in deployment: consistent preprocessing, score calibration across heterogeneous detectors, and accelerator-native scoring.
 
 \section[Motivation]{\textbf{Motivation}}
 
-Brief the motivation of selecting your project title. You can elaborate the challenges in the specific area, relevance and importance of the chosen topic. 
+Small and medium textile enterprises rarely have access to proprietary commercial inspection systems, which are expensive and closed. An open, self-supervised framework that can be calibrated to a factory's own fabric with a short pass over defect-free samples---and that runs at line speed on a single consumer GPU---would substantially lower the barrier to automated quality control. The motivation for this work is both to build such a system and to establish the engineering principles (preprocessing parity, score calibration, GPU-native scoring) that make it reliable enough to deploy.
 
 \section[Problem statement]{\textbf{Problem statement}}
 
-Define the problem statement in this section, in one paragraph.
+To design and industrialize a real-time, unsupervised fabric-defect detection system that fuses multiple complementary anomaly detectors into a single calibrated decision, achieves accurate discrimination between normal and defective cloth, and delivers low-latency inference suitable for integration with high-speed textile production lines.
 
 \section[Objectives]{\textbf{Objectives}}
 The objectives of the project are
 \begin{enumerate}
-\item To design a pipelined ADC for audio frequency range
-\item List all the objectives in the above format , starting with "To"
-\item Limit the number of objectives to a maximum of three
+\item To design an ensemble anomaly-detection pipeline that fuses PatchCore, DINO, and a Vision Transformer Autoencoder into a single, calibrated decision score.
+\item To minimize inference latency through accelerator-native nearest-neighbour search and mixed-precision execution, enabling real-time operation.
+\item To industrialize the system as a deployable, configurable service with a documented integration interface and validated end-to-end behaviour.
 \end{enumerate}
 
 \section[Brief Methodology of the project]{\textbf{Brief Methodology of the project}}
-Discuss about the methodology you identified to execute the objectives of your project in brief. Methodology is a system of practices, techniques, procedures, and rules used to execute a particular project. You can elaborate the methodology in a later chapter. Here you can present in the form of a flow diagram and explain the methodology in a paragraph.
+
+The methodology proceeds in four stages. First, defect-free fabric images are used to fit the two memory banks (PatchCore, DINO) and to train the reconstruction autoencoder, under a single preprocessing routine. Second, a calibration pass over the same normal data records each detector's score statistics, which are used to standardize the three heterogeneous scores to a common scale before fusion. Third, the fused decision threshold is fixed by maximizing Youden's~J statistic on a held-out validation set. Finally, the calibrated pipeline is wrapped in a REST/WebSocket service, an embeddable SDK, and a containerized deployment, and validated by an end-to-end test suite. The detailed methodology is developed in Chapters~3 and~4.
 
 \section[Assumptions made / Constraints of the project]{\textbf{Assumptions made / Constraints of the project}}
 
-List the assumptions made for the execution of the project in this section. You can also elaborate on the major constraints of the project. This section should clearly state under what conditions your project is valid. It is mandatory to have this section in your project report.
+The work is valid under the following assumptions and constraints. (i) The training set consists of \emph{defect-free} fabric that is representative of the production fabric; the calibrated threshold is only valid for the fabric family it was calibrated on. (ii) Imaging conditions---camera geometry, focus, and illumination---are held reasonably constant between calibration and inference; large changes require recalibration. (iii) Real-time latency figures assume a CUDA-capable GPU; on CPU the system is suitable only for offline batch inspection. (iv) The quantitative results reported here were obtained on a controlled synthetic fabric dataset; validation on real production fabric is required before field deployment.
 
 \section[Organization of the report]{\textbf{Organization of the report}}
 
-This report is organized as follows. Write the discussions in each chapter. A sample is as follows.
+This report is organized as follows.
 \begin{itemize}
-\item Chapter 2 discusses the fundamentals of ADC and the performance parameters for evaluation.
-\item Chapter 3 discusses .
-\item Chapter 4 discusses .
-\item Chapter 5 discusses .
-\item Chapter 6 discusses .
+\item Chapter 2 develops the theory and fundamentals: anomaly detection, the Vision Transformer, and the three detector pathways, together with the tools used.
+\item Chapter 3 presents the system design---the parallel-pathway architecture, the calibration and fusion equations, and the deployment design.
+\item Chapter 4 details the implementation, including the preprocessing-parity fix, GPU-accelerated scoring, calibration, and the service stack.
+\item Chapter 5 reports and discusses the experimental results.
+\item Chapter 6 concludes the report and outlines the future scope.
 \end{itemize}
-
-.
