@@ -51,6 +51,8 @@ def main():
     ap.add_argument('--format', choices=['csv', 'json'], default=None, help='override report format')
     ap.add_argument('--save-overlays', default=None, help='dir to write heatmap overlays for defects')
     ap.add_argument('--device', default=None, help='cuda | cpu | auto (default: config/env)')
+    ap.add_argument('--mode', choices=['accurate', 'fast'], default='accurate',
+                    help='accurate = full ensemble (default); fast = single detector, low latency')
     args = ap.parse_args()
 
     files = gather(args.input)
@@ -58,11 +60,12 @@ def main():
         print(f"No images found at: {args.input}")
         sys.exit(1)
 
-    engine = InferenceEngine(device=args.device, capture_attention=False)
+    engine = InferenceEngine(device=args.device, capture_attention=False, mode=args.mode)
     if not engine.calibrated:
         print("WARNING: no weights/calibration.json found — using fallback threshold. "
               "Run `python calibrate.py` for a calibrated decision boundary.")
-    print(f"Loaded engine on {engine.device}. Threshold={engine.threshold:.3f}. "
+    mode_desc = f"fast ({engine.fast_model})" if args.mode == 'fast' else "accurate (ensemble)"
+    print(f"Loaded engine on {engine.device}. Mode={mode_desc}. "
           f"Scoring {len(files)} image(s)...\n")
 
     if args.save_overlays:

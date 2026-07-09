@@ -16,6 +16,7 @@ around this same engine, so every integration path shares one calibrated pipelin
 """
 
 import os
+import json
 import time
 from dataclasses import dataclass
 
@@ -33,18 +34,29 @@ from app_utils.config import config
 
 @dataclass
 class InspectionResult:
-    score: float          # calibrated fused anomaly score (z-score scale)
+    score: float          # calibrated anomaly score (z-score scale)
     is_defect: bool       # score > threshold
     threshold: float      # threshold used for this decision
     latency_ms: float     # pure model inference time (excludes decode/encode)
     heatmap: np.ndarray   # HxW float anomaly map at input resolution
+    mode: str = "accurate"  # which mode produced this result
 
 
 class InferenceEngine:
-    """Loads the calibrated ensemble once and scores frames. Thread-affinity:
-    create one engine per process; a single engine call is not re-entrant."""
+    """Loads the calibrated detectors once and scores frames.
 
-    def __init__(self, weights_dir=None, device=None, capture_attention=False, warmup=True):
+    Two modes:
+      * ``accurate`` (default) fuses all three detectors -- highest accuracy.
+      * ``fast`` runs a single strong detector -- lowest latency (~3x fewer
+        transformer forward passes), for real-time use on constrained hardware.
+
+    Thread-affinity: create one engine per process; a single call is not
+    re-entrant."""
+
+    _KEY2ATTR = {'patchcore': 'patchcore', 'dino': 'dino', 'vit_ae': 'vae'}
+
+    def __init__(self, weights_dir=None, device=None, capture_attention=False,
+                 warmup=True, mode='accurate'):
         self.weights_dir = weights_dir or config.weights_dir
         self.device = torch.device(device or config.resolved_device())
         model_base.USE_AMP = config.use_amp
@@ -53,9 +65,26 @@ class InferenceEngine:
 
         self._load()
         self.dino.capture_attention = capture_attention
-        self.threshold = load_threshold(config.calibration_path, config.default_threshold)
+        self.mode = mode
 
+        # Load calibration: ensemble threshold + per-model Fast-mode thresholds.
+        self.threshold = load_threshold(config.calibration_path, config.default_threshold)
         self.calibrated = os.path.exists(config.calibration_path)
+        self.model_thresholds = {}
+        self.fast_model = 'dino'
+        if self.calibrated:
+            try:
+                with open(config.calibration_path) as f:
+                    cal = json.load(f)
+                self.fast_model = cal.get('fast_model', 'dino')
+                for k, v in cal.get('per_model', {}).items():
+                    self.model_thresholds[k] = float(v.get('threshold', config.default_threshold))
+            except Exception:
+                pass
+        # Fast mode needs its detector's attention iff visualization is requested.
+        if capture_attention and self.fast_model == 'dino':
+            self.dino.capture_attention = True
+
         if warmup:
             self._warmup()
 
@@ -85,22 +114,33 @@ class InferenceEngine:
         except Exception:
             pass
 
-    def predict_bgr(self, img_bgr):
-        """Score a BGR (OpenCV) image. Returns an InspectionResult."""
+    def predict_bgr(self, img_bgr, mode=None):
+        """Score a BGR (OpenCV) image. Returns an InspectionResult.
+
+        ``mode`` overrides the engine default: ``'accurate'`` fuses all detectors,
+        ``'fast'`` runs only the recommended single detector for lowest latency."""
+        mode = mode or self.mode
         tensor = preprocess_frame(img_bgr, (config.input_width, config.input_height),
                                   self.device, config.imagenet_mean, config.imagenet_std)
         t0 = time.time()
         with torch.no_grad():
-            score, heatmap = self.ensemble.predict(tensor)
+            if mode == 'fast':
+                model = getattr(self, self._KEY2ATTR.get(self.fast_model, 'dino'))
+                score, heatmap = model.predict(tensor)
+                threshold = self.model_thresholds.get(self.fast_model, self.threshold)
+            else:
+                score, heatmap = self.ensemble.predict(tensor)
+                threshold = self.threshold
         if self.device.type == 'cuda':
             torch.cuda.synchronize()
         latency_ms = (time.time() - t0) * 1000.0
         return InspectionResult(
             score=float(score),
-            is_defect=bool(score > self.threshold),
-            threshold=float(self.threshold),
+            is_defect=bool(score > threshold),
+            threshold=float(threshold),
             latency_ms=latency_ms,
             heatmap=heatmap,
+            mode=mode,
         )
 
     def overlay(self, img_bgr, result, alpha=0.5):

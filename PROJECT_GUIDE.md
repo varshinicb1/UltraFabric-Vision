@@ -174,6 +174,15 @@ weights with fresh calibration stats plus `calibration.json`.
 
 All four share the exact same calibrated pipeline.
 
+**Accurate vs Fast mode.** Every entry point supports two modes:
+- **Accurate** (default) — fuses all three detectors. Best accuracy; real-time on GPU.
+- **Fast** — runs the single fastest calibrated detector (chosen by `calibrate.py`).
+  Much lower latency (measured on CPU: ~75 ms/frame vs ~1060 ms for the ensemble) but
+  lower robustness, since it relies on one detector. Use it for real-time inspection on
+  CPU/edge, or when the GPU is unavailable; prefer Accurate on GPU where the ensemble is
+  already real-time. Select via `UFV_MODE=fast`, `predict.py --mode fast`,
+  `InferenceEngine(mode='fast')`, or the API `?mode=fast`.
+
 ### 7.1 Batch CLI (offline QA → CSV/JSON)
 ```bash
 # Single image
@@ -258,6 +267,7 @@ Every setting is an environment variable (prefix `UFV_`); one image runs everywh
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `UFV_DEVICE` | `auto` | `cuda` / `cpu` / `auto` |
+| `UFV_MODE` | `accurate` | `accurate` = full ensemble; `fast` = single detector (low latency) |
 | `UFV_USE_AMP` | `1` | fp16 mixed precision on GPU (≈2× faster) |
 | `UFV_USE_COMPILE` | `0` | `torch.compile` backbones (extra speed, Linux/GPU) |
 | `UFV_PORT` | `8000` | API port |

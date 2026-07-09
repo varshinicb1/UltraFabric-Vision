@@ -30,7 +30,7 @@ from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder
 from fusion.ensemble import EnsembleFusion
-from app_utils.helpers import resize_and_pad, apply_heatmap, preprocess_frame, load_threshold
+from app_utils.helpers import resize_and_pad, apply_heatmap, preprocess_frame, load_threshold, load_calibration
 from app_utils.config import config
 
 # Apply performance flags from config
@@ -41,6 +41,13 @@ if torch.cuda.is_available():
 # Shared, calibrated detection threshold (single source of truth across all
 # entry points). Populated at startup once models/calibration are loaded.
 DETECTION_THRESHOLD = config.default_threshold
+
+# Inference mode: 'accurate' = full ensemble; 'fast' = single detector (low
+# latency). Default from env UFV_MODE; per-request override via ?mode=.
+DEFAULT_MODE = os.environ.get('UFV_MODE', 'accurate').strip().lower()
+FAST_MODEL = None          # the single detector object used in fast mode
+FAST_MODEL_KEY = 'dino'
+FAST_THRESHOLD = config.default_threshold
 
 app = FastAPI(title="FabricAI Pro Web Engine", version="1.0")
 
@@ -129,6 +136,14 @@ async def load_models():
     # Load the shared calibrated threshold (falls back to config default).
     DETECTION_THRESHOLD = load_threshold(config.calibration_path, config.default_threshold)
 
+    # Resolve the Fast-mode detector + its threshold from calibration.
+    global FAST_MODEL, FAST_MODEL_KEY, FAST_THRESHOLD
+    cal = load_calibration(config.calibration_path)
+    FAST_MODEL_KEY = cal.get('fast_model', 'dino')
+    key2obj = {'patchcore': pc, 'dino': dino_extractor, 'vit_ae': vae}
+    FAST_MODEL = key2obj.get(FAST_MODEL_KEY, dino_extractor)
+    FAST_THRESHOLD = float(cal.get('per_model', {}).get(FAST_MODEL_KEY, {}).get('threshold', DETECTION_THRESHOLD))
+
     # Warm up: run a dummy frame so cuDNN autotuning / lazy CUDA init / AMP graph
     # capture happen now rather than spiking the first real frame's latency.
     try:
@@ -140,8 +155,11 @@ async def load_models():
 
     print(f"AI Engine loaded successfully. Detection threshold={DETECTION_THRESHOLD:.3f}")
 
-def process_frame(img_bgr):
-    """Processes a BGR image and returns visualization, score, and anomaly status."""
+def process_frame(img_bgr, mode=None):
+    """Processes a BGR image and returns visualization, score, and anomaly status.
+
+    mode: 'accurate' (full ensemble) or 'fast' (single detector, low latency)."""
+    mode = (mode or DEFAULT_MODE)
     # Canonical preprocessing — MUST match training (plain stretch-resize + ImageNet
     # normalize). GPU-side normalize. img_resized is what the model actually "sees",
     # so the heatmap overlays align with it.
@@ -149,18 +167,22 @@ def process_frame(img_bgr):
     tensor = preprocess_frame(img_bgr, (224, 224), device,
                               config.imagenet_mean, config.imagenet_std)
 
-    # Inference (single forward pass per model; DINO attention captured inline).
+    # Inference: fast = one detector; accurate = full ensemble.
     t0 = time.time()
     with torch.no_grad():
-        score, hmap = fusion_engine.predict(tensor)
-    # Real DINO attention, captured during the SAME forward used for scoring.
-    # Shape: (heads, g, g). Falls back to the anomaly heatmap if unavailable.
-    attn = dino_extractor.last_attention
+        if mode == 'fast' and FAST_MODEL is not None:
+            score, hmap = FAST_MODEL.predict(tensor)
+            active_threshold = FAST_THRESHOLD
+        else:
+            score, hmap = fusion_engine.predict(tensor)
+            active_threshold = DETECTION_THRESHOLD
+    # DINO attention (accurate mode captures it inline); fall back to the heatmap.
+    attn = getattr(dino_extractor, 'last_attention', None)
     attn_maps = attn[0] if attn is not None else np.stack([hmap] * 6)
     latency = (time.time() - t0) * 1000
 
-    # Threshold for defect (shared, calibrated).
-    is_anomalous = score > DETECTION_THRESHOLD
+    # Threshold for defect (mode-appropriate, calibrated).
+    is_anomalous = score > active_threshold
 
     # Create Neural Insight Grid.
     # Normalize each head for visualization
@@ -224,10 +246,13 @@ def version_info():
         "input_size": [config.input_width, config.input_height],
         "amp": config.use_amp,
         "models": ["PatchCore(ViT-B/16)", "DINO(ViT-S/8)", "ViT-Autoencoder"],
+        "default_mode": DEFAULT_MODE,
+        "fast_model": FAST_MODEL_KEY,
+        "fast_threshold": FAST_THRESHOLD,
     }
 
 @app.post("/api/upload_image")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), mode: str = None):
     if fusion_engine is None:
         return JSONResponse(status_code=503, content={"error": "engine still loading"})
     contents = await file.read()
@@ -238,7 +263,7 @@ async def upload_image(file: UploadFile = File(...)):
         return JSONResponse(status_code=400, content={"error": "Invalid or unreadable image"})
 
     try:
-        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr)
+        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, mode)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": f"inference failed: {e}"})
     
@@ -300,18 +325,19 @@ async def batch_upload(files: List[UploadFile] = File(...)):
 @app.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):
     await websocket.accept()
+    ws_mode = websocket.query_params.get("mode")   # 'fast' | 'accurate' | None
     try:
         while True:
             data = await websocket.receive_text()
             if data.startswith("data:image"):
                 data = data.split(",")[1]
-            
+
             img_bytes = base64.b64decode(data)
             nparr = np.frombuffer(img_bytes, np.uint8)
             img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
+
             if img_bgr is not None:
-                vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr)
+                vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, ws_mode)
                 
                 _, buffer = cv2.imencode('.jpg', vis)
                 out_base64 = base64.b64encode(buffer).decode('utf-8')

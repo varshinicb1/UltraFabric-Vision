@@ -66,6 +66,18 @@ def load_threshold(calibration_path, default=3.0):
         pass
     return float(default)
 
+
+def load_calibration(calibration_path):
+    """Load the full calibration record (ensemble threshold, per-model thresholds,
+    recommended fast model). Returns an empty dict if unavailable."""
+    try:
+        if calibration_path and os.path.exists(calibration_path):
+            with open(calibration_path, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
 def apply_heatmap(image, anomaly_map, alpha=0.5):
     """Apply anomaly heatmap over the original image."""
     h, w = image.shape[:2]

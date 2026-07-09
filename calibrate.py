@@ -36,7 +36,7 @@ from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder
 from fusion.ensemble import EnsembleFusion
-from train import FabricDataset, get_transform, evaluate_model_ensemble
+from train import FabricDataset, get_transform, evaluate_model_ensemble, evaluate_model
 
 
 def main():
@@ -94,17 +94,35 @@ def main():
     ensemble = EnsembleFusion([pc, dino, vae])
     r = evaluate_model_ensemble(ensemble, test_good_loader, test_defect_loader)
 
+    # --- Per-model thresholds (used by Fast mode: single-detector inference) ---
+    print("Computing per-model thresholds for Fast mode...")
+    per_model = {}
+    for model, key in [(pc, 'patchcore'), (dino, 'dino'), (vae, 'vit_ae')]:
+        rm = evaluate_model(model, test_good_loader, test_defect_loader, key)
+        per_model[key] = {'threshold': rm['threshold'], 'auroc': rm['auroc'],
+                          'f1': rm['f1_score'], 'infer_ms': rm['avg_inference_time']}
+        print(f"  {key}: AUROC={rm['auroc']:.4f}  thr={rm['threshold']:.4f}  {rm['avg_inference_time']:.1f} ms")
+
+    # Fast mode wants the FASTEST detector that is still accurate: among models
+    # within 2% AUROC of the best, choose the one with lowest inference time.
+    best_auroc = max(m['auroc'] for m in per_model.values())
+    eligible = {k: v for k, v in per_model.items() if v['auroc'] >= best_auroc - 0.02}
+    fast_model = min(eligible, key=lambda k: eligible[k]['infer_ms'])
+
     calib_path = os.path.join(weights_dir, 'calibration.json')
     with open(calib_path, 'w') as f:
         json.dump({
             'threshold': r['threshold'],
             'ensemble_auroc': r['auroc'],
             'ensemble_f1': r['f1_score'],
+            'per_model': per_model,
+            'fast_model': fast_model,
         }, f, indent=2)
 
     print(f"\n  Ensemble AUROC={r['auroc']:.4f}  F1={r['f1_score']:.4f}")
-    print(f"  [OK] Saved calibration.json (threshold={r['threshold']:.4f})")
-    print("\nCalibration complete. Restart the backend / UI to pick up the new threshold.")
+    print(f"  Recommended Fast-mode detector: {fast_model}")
+    print(f"  [OK] Saved calibration.json (ensemble threshold={r['threshold']:.4f})")
+    print("\nCalibration complete. Restart the backend / UI to pick up the new thresholds.")
 
 
 if __name__ == "__main__":
