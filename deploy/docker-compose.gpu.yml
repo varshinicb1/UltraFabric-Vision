@@ -1,0 +1,38 @@
+# UltraFabric-Vision — GPU deployment.
+#   Build & run:  docker compose -f deploy/docker-compose.gpu.yml up --build
+# Requires: NVIDIA driver + NVIDIA Container Toolkit on the host.
+#
+# weights/ and data/ are bind-mounted so you can drop in factory-calibrated
+# weights without rebuilding the image. Run `python calibrate.py` (or train.py)
+# on the host or in a one-off container to populate weights/ first.
+services:
+  ufv-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gpu
+    image: ultrafabric-vision:gpu
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      UFV_DEVICE: cuda
+      UFV_USE_AMP: "1"
+      UFV_USE_COMPILE: "0"        # set "1" for an extra speedup once stable
+      UFV_PORT: "8000"
+      # UFV_API_KEY: "change-me"  # uncomment to require X-API-Key on every call
+    volumes:
+      - ../weights:/app/weights:ro
+      - ../data:/app/data:ro
+      - torch_cache:/app/.torch_cache
+      - hf_cache:/app/.hf_cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  torch_cache:
+  hf_cache:

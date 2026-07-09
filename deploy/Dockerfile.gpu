@@ -1,0 +1,39 @@
+# UltraFabric-Vision — GPU inference server image.
+# Starts from an official PyTorch CUDA runtime so torch/torchvision already match
+# a known-good CUDA/cuDNN stack. Requires the NVIDIA Container Toolkit on the host
+# (`--gpus all`).
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+
+# OpenCV (headless) needs these shared libs at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python deps first for layer caching. torch is already in the base image,
+# so we install the remaining API deps (they will not downgrade the CUDA torch).
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir -r requirements-api.txt
+
+# Copy source (weights + data are mounted at runtime, see docker-compose).
+COPY . .
+
+# Runtime configuration (override at `docker run -e ...`).
+ENV PYTHONUNBUFFERED=1 \
+    UFV_DEVICE=cuda \
+    UFV_USE_AMP=1 \
+    UFV_HOST=0.0.0.0 \
+    UFV_PORT=8000 \
+    HF_HOME=/app/.hf_cache \
+    TORCH_HOME=/app/.torch_cache
+
+EXPOSE 8000
+
+# Liveness probe for orchestrators.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)" || exit 1
+
+# Production server. Single worker: the model lives in GPU memory and one worker
+# saturates the GPU; scale with replicas/GPUs, not workers.
+CMD ["uvicorn", "backend_api:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FabricAI Pro Suite — Training & Evaluation Pipeline
+FabricAI Pro Suite - Training & Evaluation Pipeline
 =====================================================
 1. Fits PatchCore memory bank on normal training images.
 2. Fits DINO k-NN memory bank on normal training images.
@@ -66,7 +66,7 @@ def evaluate_model(model, good_loader, defect_loader, model_name):
     """Evaluate a single model and return metrics dict."""
     y_true, y_scores, times = [], [], []
 
-    # Good samples  → label 0
+    # Good samples  -> label 0
     for batch in good_loader:
         batch = batch.to(model.device)
         t0 = time.time()
@@ -75,7 +75,7 @@ def evaluate_model(model, good_loader, defect_loader, model_name):
         y_true.append(0)
         y_scores.append(float(score))
 
-    # Defect samples → label 1
+    # Defect samples -> label 1
     for batch in defect_loader:
         batch = batch.to(model.device)
         t0 = time.time()
@@ -152,7 +152,7 @@ def train_system():
                      (test_defect_dir, "test/defect")]:
         if not os.path.isdir(d) or len(os.listdir(d)) == 0:
             print(f"ERROR: Dataset directory '{label}' is missing or empty.")
-            print("  → Run:  python scripts/generate_synthetic_data.py")
+            print("  -> Run:  python scripts/generate_synthetic_data.py")
             return
 
     transform = get_transform()
@@ -171,34 +171,34 @@ def train_system():
     print(f"Test   : {len(test_good_dataset)} good + {len(test_defect_dataset)} defect")
 
     # ==================================================================
-    # 1. PatchCore — fit memory bank
+    # 1. PatchCore - fit memory bank
     # ==================================================================
     print("\n" + "=" * 60)
-    print("  PHASE 1 — Fitting PatchCore")
+    print("  PHASE 1 - Fitting PatchCore")
     print("=" * 60)
     patchcore = PatchCore().to(device)
     patchcore.fit(fit_loader)
     print(f"  Memory bank shape: {patchcore.memory_bank.shape}")
     patchcore.save_memory_bank(os.path.join(weights_dir, 'patchcore_memory_bank.pkl'))
-    print("  ✓ Saved patchcore_memory_bank.pkl")
+    print("  [OK] Saved patchcore_memory_bank.pkl")
 
     # ==================================================================
-    # 2. DINO — fit memory bank
+    # 2. DINO - fit memory bank
     # ==================================================================
     print("\n" + "=" * 60)
-    print("  PHASE 2 — Fitting DINO Feature Extractor")
+    print("  PHASE 2 - Fitting DINO Feature Extractor")
     print("=" * 60)
     dino = DINOFeatureExtractor().to(device)
     dino.fit(fit_loader)
     print(f"  Memory bank shape: {dino.memory_bank.shape}")
     dino.save_memory_bank(os.path.join(weights_dir, 'dino_memory_bank.pkl'))
-    print("  ✓ Saved dino_memory_bank.pkl")
+    print("  [OK] Saved dino_memory_bank.pkl")
 
     # ==================================================================
-    # 3. ViT Autoencoder — train reconstruction
+    # 3. ViT Autoencoder - train reconstruction
     # ==================================================================
     print("\n" + "=" * 60)
-    print("  PHASE 3 — Training ViT Autoencoder")
+    print("  PHASE 3 - Training ViT Autoencoder")
     print("=" * 60)
     vit_ae = ViTAutoencoder().to(device)
     optimizer = torch.optim.AdamW(vit_ae.parameters(), lr=1e-4, weight_decay=1e-5)
@@ -221,14 +221,17 @@ def train_system():
         avg = epoch_loss / len(train_loader)
         print(f"  Epoch {epoch + 1:2d}/{epochs} | Loss: {avg:.6f} | LR: {scheduler.get_last_lr()[0]:.2e}")
 
+    # Calibrate reconstruction-error score distribution on normal data so the
+    # autoencoder emits comparable z-scores (PatchCore/DINO self-calibrate in fit).
+    vit_ae.calibrate(fit_loader)
     vit_ae.save_weights(os.path.join(weights_dir, 'vit_ae_weights.pth'))
-    print("  ✓ Saved vit_ae_weights.pth")
+    print("  [OK] Saved vit_ae_weights.pth")
 
     # ==================================================================
     # 4. Evaluation
     # ==================================================================
     print("\n" + "=" * 60)
-    print("  PHASE 4 — Evaluation on Test Set")
+    print("  PHASE 4 - Evaluation on Test Set")
     print("=" * 60)
 
     patchcore.eval()
@@ -251,6 +254,18 @@ def train_system():
     results.append(r_ens)
     print(f"  Ensemble: AUROC={r_ens['auroc']:.4f}  F1={r_ens['f1_score']:.4f}")
 
+    # Persist the calibrated ensemble threshold so ALL entry points (web backend
+    # and PyQt UI) share one source of truth instead of hardcoded magic numbers.
+    import json
+    calib_path = os.path.join(weights_dir, 'calibration.json')
+    with open(calib_path, 'w') as f:
+        json.dump({
+            'threshold': r_ens['threshold'],
+            'ensemble_auroc': r_ens['auroc'],
+            'ensemble_f1': r_ens['f1_score'],
+        }, f, indent=2)
+    print(f"  [OK] Saved calibration.json (threshold={r_ens['threshold']:.4f})")
+
     print_results_table(results)
 
     # ==================================================================
@@ -272,7 +287,7 @@ def train_system():
     gen = ReportGenerator(tracker.experiment_id)
     pdf_path = gen.generate_report(metrics_dict)
     tracker.save()
-    print(f"  ✓ Report saved to: {pdf_path}")
+    print(f"  [OK] Report saved to: {pdf_path}")
 
     print("\n" + "=" * 60)
     print("  TRAINING & EVALUATION COMPLETE")

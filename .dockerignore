@@ -1,0 +1,19 @@
+.git
+.gitignore
+**/__pycache__/
+*.pyc
+.venv
+venv
+web_app/node_modules
+web_app/dist
+experiments_data
+reports_output
+report
+*.log
+.claude
+# weights/ and data/ are bind-mounted at runtime, not baked into the image
+weights
+data
+data_universal
+.torch_cache
+.hf_cache

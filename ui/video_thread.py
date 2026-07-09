@@ -6,18 +6,22 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from api.input_stream import VideoStream
 from fusion.ensemble import EnsembleFusion
 from temporal.smoothing import TemporalSmoother
-from app_utils.helpers import resize_and_pad, apply_heatmap, get_defect_boxes
+from app_utils.helpers import resize_and_pad, apply_heatmap, get_defect_boxes, preprocess_frame, load_threshold
+from app_utils.config import config
 
 class VideoThread(QThread):
     change_pixmap_signal = pyqtSignal(np.ndarray, float, bool, float)
-    
+
     def __init__(self, source=0, models=[]):
         super().__init__()
         self.stream = VideoStream(source)
         self.fusion = EnsembleFusion(models) if models else None
-        self.smoother = TemporalSmoother(window_size=10)
+        self.smoother = TemporalSmoother(window_size=config.temporal_window)
         self._run_flag = True
-        self.threshold = 22.0 # Updated from Universal Calibration
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # Shared, calibrated threshold on the fused z-score (single source of truth
+        # with the web backend). Falls back to config default before calibration.
+        self.threshold = load_threshold(config.calibration_path, config.default_threshold)
         
     def run(self):
         while self._run_flag:
@@ -74,14 +78,9 @@ class VideoThread(QThread):
         self.stream.release()
 
     def preprocess(self, img):
-        img_resized = resize_and_pad(img, (224, 224))
-        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-        tensor = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0
-        # Normalize with ImageNet stats
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        tensor = (tensor - mean) / std
-        return tensor.unsqueeze(0).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        # Canonical preprocessing shared with training and the web backend.
+        return preprocess_frame(img, (224, 224), self.device,
+                                config.imagenet_mean, config.imagenet_std)
 
     def stop(self):
         self._run_flag = False

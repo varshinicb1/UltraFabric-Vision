@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-from models.base import BaseModel
+from models.base import BaseModel, amp_context, batch_images
 
 
 class ViTAutoencoder(BaseModel):
@@ -59,21 +59,46 @@ class ViTAutoencoder(BaseModel):
 
     # ------------------------------------------------------------------
     def save_weights(self, path):
-        torch.save(self.state_dict(), path)
+        torch.save({
+            'state_dict': self.state_dict(),
+            'score_mean': self.score_mean,
+            'score_std': self.score_std,
+        }, path)
 
     def load_weights(self, path):
         if os.path.exists(path):
-            self.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+            data = torch.load(path, map_location=self.device, weights_only=False)
+            if isinstance(data, dict) and 'state_dict' in data:
+                self.load_state_dict(data['state_dict'])
+                self.score_mean = data.get('score_mean', 0.0)
+                self.score_std = data.get('score_std', 1.0)
+            else:
+                # Legacy format: raw state_dict
+                self.load_state_dict(data)
             return True
         return False
 
     # ------------------------------------------------------------------
-    def predict(self, x):
+    def calibrate(self, dataloader):
+        """Record mean/std of raw reconstruction-error scores over NORMAL data."""
+        raw = []
+        for batch in dataloader:
+            x = batch_images(batch).to(self.device)
+            raw.append(self._raw_score(x)[0])
+        if raw:
+            self.score_mean = float(np.mean(raw))
+            self.score_std = float(np.std(raw) + 1e-6)
+
+    def _raw_score(self, x):
         self.eval()
-        with torch.no_grad():
+        with torch.no_grad(), amp_context(x.device):
             reconstructed = self.forward(x)
 
-        error_map = torch.mean((x - reconstructed) ** 2, dim=1)  # (B, H, W)
+        error_map = torch.mean((x.float() - reconstructed.float()) ** 2, dim=1)  # (B, H, W)
         error_map = error_map.squeeze(0).cpu().numpy()
-        anomaly_score = float(error_map.max())
-        return anomaly_score, error_map
+        raw_score = float(error_map.max())
+        return raw_score, error_map
+
+    def predict(self, x):
+        raw_score, error_map = self._raw_score(x)
+        return self._normalize_score(raw_score), error_map
