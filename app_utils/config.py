@@ -63,6 +63,14 @@ class Config:
         # calibrated weights/calibration.json is not present. Calibrate for real
         # deployments via `python calibrate.py`.
         self.default_threshold = _env_float('UFV_DEFAULT_THRESHOLD', 3.0)
+        # Minimum defect size, as a fraction of the frame area. Connected
+        # anomalous regions smaller than this are ignored, so tiny texture
+        # specks / single-patch noise are not reported as defects. 0.004 of a
+        # 224x224 frame is ~200 px. Raise to be stricter about defect size.
+        self.min_defect_area_frac = _env_float('UFV_MIN_DEFECT_AREA', 0.004)
+        # Relative intensity (0-1) at which the fused heatmap is thresholded when
+        # extracting defect regions for localization / sizing.
+        self.defect_intensity_frac = _env_float('UFV_DEFECT_INTENSITY', 0.55)
         # Temporal smoothing window over the fused score. Small so real transient
         # defects are not averaged away at line speed.
         self.temporal_window = _env_int('UFV_TEMPORAL_WINDOW', 3)

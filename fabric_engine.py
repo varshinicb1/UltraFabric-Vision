@@ -28,18 +28,20 @@ from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder
 from fusion.ensemble import EnsembleFusion
-from app_utils.helpers import preprocess_frame, load_threshold, apply_heatmap
+from app_utils.helpers import preprocess_frame, load_threshold, apply_heatmap, detect_defect_regions
 from app_utils.config import config
 
 
 @dataclass
 class InspectionResult:
     score: float          # calibrated anomaly score (z-score scale)
-    is_defect: bool       # score > threshold
+    is_defect: bool       # score > threshold AND a defect region above min size
     threshold: float      # threshold used for this decision
     latency_ms: float     # pure model inference time (excludes decode/encode)
     heatmap: np.ndarray   # HxW float anomaly map at input resolution
     mode: str = "accurate"  # which mode produced this result
+    boxes: list = None    # sized defect regions [{x,y,w,h,area_frac}] at heatmap res
+    defect_area_frac: float = 0.0  # total defective area as a fraction of the frame
 
 
 class InferenceEngine:
@@ -134,13 +136,24 @@ class InferenceEngine:
         if self.device.type == 'cuda':
             torch.cuda.synchronize()
         latency_ms = (time.time() - t0) * 1000.0
+
+        # Size-gated defect regions: a frame counts as defective only if the
+        # score exceeds the threshold AND there is at least one connected
+        # anomalous region above the minimum defect size.
+        boxes = []
+        if score > threshold:
+            boxes = detect_defect_regions(heatmap, config.min_defect_area_frac,
+                                          config.defect_intensity_frac)
+        area = round(sum(b['area_frac'] for b in boxes), 5)
         return InspectionResult(
             score=float(score),
-            is_defect=bool(score > threshold),
+            is_defect=bool(score > threshold and len(boxes) > 0),
             threshold=float(threshold),
             latency_ms=latency_ms,
             heatmap=heatmap,
             mode=mode,
+            boxes=boxes,
+            defect_area_frac=area,
         )
 
     def overlay(self, img_bgr, result, alpha=0.5):
