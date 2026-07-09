@@ -6,26 +6,43 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from api.input_stream import VideoStream
 from fusion.ensemble import EnsembleFusion
 from temporal.smoothing import TemporalSmoother
-from app_utils.helpers import resize_and_pad, apply_heatmap, get_defect_boxes
+from app_utils.helpers import resize_and_pad, apply_heatmap, get_defect_boxes, preprocess_frame, load_threshold, load_calibration
+from app_utils.config import config
 
 class VideoThread(QThread):
     change_pixmap_signal = pyqtSignal(np.ndarray, float, bool, float)
-    
-    def __init__(self, source=0, models=[]):
+
+    def __init__(self, source=0, models=[], mode='accurate'):
         super().__init__()
         self.stream = VideoStream(source)
         self.fusion = EnsembleFusion(models) if models else None
-        self.smoother = TemporalSmoother(window_size=10)
+        self.smoother = TemporalSmoother(window_size=config.temporal_window)
         self._run_flag = True
-        self.threshold = 22.0 # Updated from Universal Calibration
-        
+        self.mode = mode
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # Fast mode runs a single detector instead of the ensemble: ~3x fewer
+        # transformer passes for real-time use on constrained hardware.
+        cal = load_calibration(config.calibration_path)
+        ens_threshold = load_threshold(config.calibration_path, config.default_threshold)
+        fast_key = cal.get('fast_model', 'dino')
+        key2cls = {'patchcore': 'PatchCore', 'dino': 'DINOFeatureExtractor', 'vit_ae': 'ViTAutoencoder'}
+        self.fast_model = next((m for m in models if type(m).__name__ == key2cls.get(fast_key)), None)
+        fast_threshold = cal.get('per_model', {}).get(fast_key, {}).get('threshold', ens_threshold)
+
+        if mode == 'fast' and self.fast_model is not None:
+            self.threshold = float(fast_threshold)
+        else:
+            self.mode = 'accurate'
+            self.threshold = float(ens_threshold)
+
     def run(self):
         while self._run_flag:
             start_time = time.time()
             ret, cv_img = self.stream.read()
             if not ret:
                 break
-                
+
             smoothed_score = 0.0
             is_anomalous = False
             display_img = cv_img.copy()
@@ -33,8 +50,11 @@ class VideoThread(QThread):
             if self.fusion:
                 # Preprocess
                 input_tensor = self.preprocess(cv_img)
-                # Predict
-                score, heatmap = self.fusion.predict(input_tensor)
+                # Predict (Fast = single detector, Accurate = full ensemble)
+                if self.mode == 'fast' and self.fast_model is not None:
+                    score, heatmap = self.fast_model.predict(input_tensor)
+                else:
+                    score, heatmap = self.fusion.predict(input_tensor)
                 
                 # Temporal smoothing
                 self.smoother.add(score)
@@ -74,14 +94,9 @@ class VideoThread(QThread):
         self.stream.release()
 
     def preprocess(self, img):
-        img_resized = resize_and_pad(img, (224, 224))
-        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-        tensor = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0
-        # Normalize with ImageNet stats
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        tensor = (tensor - mean) / std
-        return tensor.unsqueeze(0).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        # Canonical preprocessing shared with training and the web backend.
+        return preprocess_frame(img, (224, 224), self.device,
+                                config.imagenet_mean, config.imagenet_std)
 
     def stop(self):
         self._run_flag = False

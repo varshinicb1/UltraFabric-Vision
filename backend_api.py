@@ -5,7 +5,8 @@ import torch
 import base64
 import time
 import asyncio
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
@@ -24,11 +25,29 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+from models import base as model_base
 from models.patchcore import PatchCore
 from models.dino import DINOFeatureExtractor
 from models.vit_autoencoder import ViTAutoencoder
 from fusion.ensemble import EnsembleFusion
-from app_utils.helpers import resize_and_pad, apply_heatmap
+from app_utils.helpers import resize_and_pad, apply_heatmap, preprocess_frame, load_threshold, load_calibration
+from app_utils.config import config
+
+# Apply performance flags from config
+model_base.USE_AMP = config.use_amp
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True  # fixed 224x224 input -> pick fast kernels
+
+# Shared, calibrated detection threshold (single source of truth across all
+# entry points). Populated at startup once models/calibration are loaded.
+DETECTION_THRESHOLD = config.default_threshold
+
+# Inference mode: 'accurate' = full ensemble; 'fast' = single detector (low
+# latency). Default from env UFV_MODE; per-request override via ?mode=.
+DEFAULT_MODE = os.environ.get('UFV_MODE', 'accurate').strip().lower()
+FAST_MODEL = None          # the single detector object used in fast mode
+FAST_MODEL_KEY = 'dino'
+FAST_THRESHOLD = config.default_threshold
 
 app = FastAPI(title="FabricAI Pro Web Engine", version="1.0")
 
@@ -41,14 +60,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Ensemble Engine
-if not torch.cuda.is_available():
-    print("WARNING: GPU (CUDA) not found. Falling back to CPU for evaluation.")
-    device = torch.device('cpu')
-else:
-    device = torch.device('cuda')
-    if HAS_GPU_LIB:
+
+@app.middleware("http")
+async def api_key_guard(request: Request, call_next):
+    """Optional shared-secret auth. Enabled only when UFV_API_KEY is set.
+    Health checks are always public so orchestrators can probe liveness."""
+    if config.api_key and request.url.path not in ("/api/health",):
+        if request.headers.get("X-API-Key") != config.api_key:
+            return JSONResponse(status_code=401, content={"error": "invalid or missing X-API-Key"})
+    return await call_next(request)
+
+# Global Ensemble Engine — device resolved from config (UFV_DEVICE env var).
+device = torch.device(config.resolved_device())
+if device.type == 'cpu':
+    print("WARNING: running on CPU. For production line-speed inference use a CUDA GPU (set UFV_DEVICE=cuda).")
+elif HAS_GPU_LIB:
+    try:
         py3nvml.nvmlInit()
+    except Exception:
+        pass
 
 fusion_engine = None
 dino_extractor = None
@@ -70,65 +100,103 @@ def get_gpu_stats():
 
 @app.on_event("startup")
 async def load_models():
-    global fusion_engine, dino_extractor
+    global fusion_engine, dino_extractor, DETECTION_THRESHOLD
     print("Loading AI Engine...")
     weights_dir = os.path.join(project_root, 'weights')
-    
+
     models = []
     # PatchCore
     pc = PatchCore().to(device)
     pc.load_memory_bank(os.path.join(weights_dir, 'patchcore_memory_bank.pkl'))
     models.append(pc)
-    
-    # DINO
+
+    # DINO — capture last-layer attention in the SAME forward pass used for
+    # scoring, so the dashboard attention grid costs us essentially nothing.
     dino_extractor = DINOFeatureExtractor().to(device)
     dino_extractor.load_memory_bank(os.path.join(weights_dir, 'dino_memory_bank.pkl'))
+    dino_extractor.capture_attention = True
     models.append(dino_extractor)
-    
+
     # ViT Autoencoder
     vae = ViTAutoencoder().to(device)
     vae.load_weights(os.path.join(weights_dir, 'vit_ae_weights.pth'))
     models.append(vae)
-    
-    fusion_engine = EnsembleFusion(models)
-    print("AI Engine loaded successfully.")
 
-def process_frame(img_bgr):
-    """Processes a BGR image and returns visualization, score, and anomaly status."""
+    fusion_engine = EnsembleFusion(models)
+
+    # Optional torch.compile for an extra speedup on Linux/GPU (needs Triton).
+    if config.use_compile:
+        try:
+            pc.feature_extractor = torch.compile(pc.feature_extractor)
+            dino_extractor.model = torch.compile(dino_extractor.model)
+            print("torch.compile enabled on backbones.")
+        except Exception as e:
+            print(f"torch.compile unavailable ({e}); continuing eager.")
+
+    # Load the shared calibrated threshold (falls back to config default).
+    DETECTION_THRESHOLD = load_threshold(config.calibration_path, config.default_threshold)
+
+    # Resolve the Fast-mode detector + its threshold from calibration.
+    global FAST_MODEL, FAST_MODEL_KEY, FAST_THRESHOLD
+    cal = load_calibration(config.calibration_path)
+    FAST_MODEL_KEY = cal.get('fast_model', 'dino')
+    key2obj = {'patchcore': pc, 'dino': dino_extractor, 'vit_ae': vae}
+    FAST_MODEL = key2obj.get(FAST_MODEL_KEY, dino_extractor)
+    FAST_THRESHOLD = float(cal.get('per_model', {}).get(FAST_MODEL_KEY, {}).get('threshold', DETECTION_THRESHOLD))
+
+    # Warm up: run a dummy frame so cuDNN autotuning / lazy CUDA init / AMP graph
+    # capture happen now rather than spiking the first real frame's latency.
+    try:
+        dummy = np.zeros((224, 224, 3), dtype=np.uint8)
+        process_frame(dummy)
+        print("AI Engine warmed up.")
+    except Exception as e:
+        print(f"Warm-up skipped: {e}")
+
+    print(f"AI Engine loaded successfully. Detection threshold={DETECTION_THRESHOLD:.3f}")
+
+def process_frame(img_bgr, mode=None):
+    """Processes a BGR image and returns visualization, score, and anomaly status.
+
+    mode: 'accurate' (full ensemble) or 'fast' (single detector, low latency)."""
+    mode = (mode or DEFAULT_MODE)
+    # Canonical preprocessing — MUST match training (plain stretch-resize + ImageNet
+    # normalize). GPU-side normalize. img_resized is what the model actually "sees",
+    # so the heatmap overlays align with it.
     img_resized = resize_and_pad(img_bgr, (224, 224))
-    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-    tensor = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0
-    
-    # Normalize
-    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-    tensor = ((tensor - mean) / std).unsqueeze(0).to(device)
-    
-    # Inference
+    tensor = preprocess_frame(img_bgr, (224, 224), device,
+                              config.imagenet_mean, config.imagenet_std)
+
+    # Inference: fast = one detector; accurate = full ensemble.
     t0 = time.time()
     with torch.no_grad():
-        score, hmap = fusion_engine.predict(tensor)
-        # Extract Real Attention Maps from DINO-v2
-        # Shape: (1, 6, 28, 28) for ViT-S/8
-        attn_maps = dino_extractor.get_attention_maps(tensor)[0] 
+        if mode == 'fast' and FAST_MODEL is not None:
+            score, hmap = FAST_MODEL.predict(tensor)
+            active_threshold = FAST_THRESHOLD
+        else:
+            score, hmap = fusion_engine.predict(tensor)
+            active_threshold = DETECTION_THRESHOLD
+    # DINO attention (accurate mode captures it inline); fall back to the heatmap.
+    attn = getattr(dino_extractor, 'last_attention', None)
+    attn_maps = attn[0] if attn is not None else np.stack([hmap] * 6)
     latency = (time.time() - t0) * 1000
-    
-    # Threshold for defect
-    is_anomalous = score > 35.0
-    
-    # Create Neural Insight Grid (Real Attention from Head 0)
+
+    # Threshold for defect (mode-appropriate, calibrated).
+    is_anomalous = score > active_threshold
+
+    # Create Neural Insight Grid.
     # Normalize each head for visualization
     processed_heads = []
     for head in attn_maps:
         h_min, h_max = head.min(), head.max()
         norm_head = (head - h_min) / (h_max - h_min + 1e-8)
         # Resize to 14x14 for dashboard grid compatibility
-        small_head = cv2.resize(norm_head, (14, 14), interpolation=cv2.INTER_CUBIC)
+        small_head = cv2.resize(norm_head.astype(np.float32), (14, 14), interpolation=cv2.INTER_CUBIC)
         processed_heads.append((small_head * 100).tolist())
 
     # Primary neural grid is the mean of all heads
     mean_attn = np.mean(attn_maps, axis=0)
-    neural_grid = cv2.resize(mean_attn, (14, 14), interpolation=cv2.INTER_CUBIC)
+    neural_grid = cv2.resize(mean_attn.astype(np.float32), (14, 14), interpolation=cv2.INTER_CUBIC)
     neural_grid = (neural_grid / (neural_grid.max() + 1e-8) * 100).astype(np.float32).tolist()
 
     # Create visual
@@ -166,16 +234,38 @@ def process_frame(img_bgr):
 def health_check():
     return {"status": "ok", "engine": "loaded" if fusion_engine else "loading"}
 
+@app.get("/api/version")
+def version_info():
+    """Model/version metadata for integrators and monitoring."""
+    return {
+        "name": "UltraFabric-Vision",
+        "version": app.version,
+        "device": str(device),
+        "engine_loaded": fusion_engine is not None,
+        "threshold": DETECTION_THRESHOLD,
+        "input_size": [config.input_width, config.input_height],
+        "amp": config.use_amp,
+        "models": ["PatchCore(ViT-B/16)", "DINO(ViT-S/8)", "ViT-Autoencoder"],
+        "default_mode": DEFAULT_MODE,
+        "fast_model": FAST_MODEL_KEY,
+        "fast_threshold": FAST_THRESHOLD,
+    }
+
 @app.post("/api/upload_image")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), mode: str = None):
+    if fusion_engine is None:
+        return JSONResponse(status_code=503, content={"error": "engine still loading"})
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
+
     if img_bgr is None:
-        return {"error": "Invalid image"}
-        
-    vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr)
+        return JSONResponse(status_code=400, content={"error": "Invalid or unreadable image"})
+
+    try:
+        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, mode)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"inference failed: {e}"})
     
     _, buffer = cv2.imencode('.jpg', vis)
     img_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -198,18 +288,18 @@ async def upload_image(file: UploadFile = File(...)):
     }
 
 @app.post("/api/batch_upload")
-async def batch_upload(files: List[UploadFile] = File(...)):
+async def batch_upload(files: List[UploadFile] = File(...), mode: str = None):
     results = []
     for file in files:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if img_bgr is None:
             results.append({"filename": file.filename, "error": "Invalid image"})
             continue
-            
-        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr)
+
+        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, mode)
         
         _, buffer = cv2.imencode('.jpg', vis)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -235,18 +325,19 @@ async def batch_upload(files: List[UploadFile] = File(...)):
 @app.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):
     await websocket.accept()
+    ws_mode = websocket.query_params.get("mode")   # 'fast' | 'accurate' | None
     try:
         while True:
             data = await websocket.receive_text()
             if data.startswith("data:image"):
                 data = data.split(",")[1]
-            
+
             img_bytes = base64.b64decode(data)
             nparr = np.frombuffer(img_bytes, np.uint8)
             img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
+
             if img_bgr is not None:
-                vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr)
+                vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, ws_mode)
                 
                 _, buffer = cv2.imencode('.jpg', vis)
                 out_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -268,13 +359,18 @@ async def stream_endpoint(websocket: WebSocket):
                     "gpu_mem": gpu_stats["mem"]
                 }
                 
-                # Broadcast to subscribers
-                for sub in active_subscribers:
+                # Broadcast to subscribers (iterate a copy; collect dead sockets
+                # and prune after — never mutate the list mid-iteration).
+                dead = []
+                for sub in list(active_subscribers):
                     try:
                         await sub.send_json(payload)
-                    except:
+                    except Exception:
+                        dead.append(sub)
+                for sub in dead:
+                    if sub in active_subscribers:
                         active_subscribers.remove(sub)
-                
+
                 await websocket.send_json(payload)
     except WebSocketDisconnect:
         pass
@@ -293,7 +389,7 @@ async def subscribe_endpoint(websocket: WebSocket):
             active_subscribers.remove(websocket)
 
 @app.websocket("/ws/remote_stream")
-async def websocket_remote_stream(websocket: WebSocket, url: str):
+async def websocket_remote_stream(websocket: WebSocket, url: str, mode: str = None):
     await websocket.accept()
     print(f"Remote Stream connected: {url}")
     cap = cv2.VideoCapture(url)
@@ -303,9 +399,9 @@ async def websocket_remote_stream(websocket: WebSocket, url: str):
             if not ret:
                 await websocket.send_json({"trace": ["ERROR: Remote stream connection lost or invalid URL"]})
                 break
-            
+
             # Process
-            vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(frame_bgr)
+            vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(frame_bgr, mode)
             
             # Encode Vis
             _, buffer = cv2.imencode('.jpg', vis)
@@ -339,4 +435,7 @@ async def websocket_remote_stream(websocket: WebSocket, url: str):
         cap.release()
 
 if __name__ == "__main__":
-    uvicorn.run("backend_api:app", host="0.0.0.0", port=8000, reload=True)
+    # Production defaults: bind/port from config (env-overridable), reload off.
+    # Set UFV_RELOAD=1 for local dev autoreload.
+    reload = os.environ.get("UFV_RELOAD", "0").strip().lower() in ("1", "true", "yes", "on")
+    uvicorn.run("backend_api:app", host=config.api_host, port=config.api_port, reload=reload)

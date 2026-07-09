@@ -1,32 +1,82 @@
+import os
+import json
 import cv2
 import numpy as np
+import torch
+
+# Cache of (mean, std) normalization tensors per device so we don't rebuild them
+# every frame.
+_NORM_CACHE = {}
+
+
+def _get_norm_tensors(device, mean, std):
+    key = (str(device), mean, std)
+    cached = _NORM_CACHE.get(key)
+    if cached is None:
+        m = torch.tensor(mean, device=device).view(1, 3, 1, 1)
+        s = torch.tensor(std, device=device).view(1, 3, 1, 1)
+        cached = (m, s)
+        _NORM_CACHE[key] = cached
+    return cached
+
 
 def resize_and_pad(image, target_size=(224, 224)):
-    """Resize image and pad to keep aspect ratio with CLAHE enhancement."""
-    # 1. Industrial Preprocessing (Inspired by YOLOv3 Fabric Repo)
-    # CLAHE for contrast enhancement
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    cl = clahe.apply(l)
-    limg = cv2.merge((cl, a, b))
-    image_enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-    
-    # Gaussian Blur to remove sensor noise
-    image_enhanced = cv2.GaussianBlur(image_enhanced, (3,3), 0)
+    """Resize a BGR frame to the model input size.
 
-    # 2. Resize and Pad logic
-    h, w = image_enhanced.shape[:2]
+    IMPORTANT: this MUST match the training transform (see train.py::get_transform
+    and train_universal.py), which is a plain ``transforms.Resize((224, 224))`` —
+    i.e. a straight stretch to 224x224 with NO aspect-ratio padding, NO CLAHE and
+    NO blur. The previous CLAHE+blur+letterbox version put inference images in a
+    completely different pixel distribution than the fitted memory banks / trained
+    autoencoder, which was the primary cause of poor accuracy. Keep this identical
+    to training preprocessing.
+    """
     tw, th = target_size
-    scale = min(tw/w, th/h)
-    nw, nh = int(w * scale), int(h * scale)
-    image_resized = cv2.resize(image_enhanced, (nw, nh))
-    
-    pad_w = (tw - nw) // 2
-    pad_h = (th - nh) // 2
-    
-    padded_image = cv2.copyMakeBorder(image_resized, pad_h, th - nh - pad_h, pad_w, tw - nw - pad_w, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-    return padded_image
+    return cv2.resize(image, (tw, th), interpolation=cv2.INTER_LINEAR)
+
+
+def preprocess_frame(image_bgr, target_size=(224, 224), device=None,
+                     mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+    """BGR frame -> normalized model-ready tensor of shape (1, 3, H, W).
+
+    Matches the training pipeline exactly (stretch-resize, RGB, /255, ImageNet
+    normalize). Normalization runs on ``device`` to avoid per-frame CPU float math.
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    img = resize_and_pad(image_bgr, target_size)                 # stretch to size
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)                    # BGR -> RGB
+    t = torch.from_numpy(np.ascontiguousarray(img)).to(device, non_blocking=True)
+    t = t.permute(2, 0, 1).unsqueeze(0).float().div_(255.0)      # (1,3,H,W) in [0,1]
+    m, s = _get_norm_tensors(device, tuple(mean), tuple(std))
+    t = (t - m) / s
+    return t
+
+
+def load_threshold(calibration_path, default=3.0):
+    """Load the shared, calibrated detection threshold. Falls back to ``default``
+    when no calibration file exists so the app still runs before calibration."""
+    try:
+        if calibration_path and os.path.exists(calibration_path):
+            with open(calibration_path, 'r') as f:
+                data = json.load(f)
+            return float(data.get('threshold', default))
+    except Exception:
+        pass
+    return float(default)
+
+
+def load_calibration(calibration_path):
+    """Load the full calibration record (ensemble threshold, per-model thresholds,
+    recommended fast model). Returns an empty dict if unavailable."""
+    try:
+        if calibration_path and os.path.exists(calibration_path):
+            with open(calibration_path, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
 
 def apply_heatmap(image, anomaly_map, alpha=0.5):
     """Apply anomaly heatmap over the original image."""

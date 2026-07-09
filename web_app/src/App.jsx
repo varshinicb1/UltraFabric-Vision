@@ -16,6 +16,9 @@ function App() {
   const [cameraUrl, setCameraUrl] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [urlError, setUrlError] = useState('');
+  // Inference mode: 'accurate' = full ensemble (best accuracy); 'fast' = single
+  // detector (low latency). Sent to the backend via ?mode= on every request.
+  const [mode, setMode] = useState('accurate');
   
   const [stats, setStats] = useState({
     status: 'Ready',
@@ -91,7 +94,7 @@ function App() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let socketUrl;
     if (streamSource === 'webcam') {
-      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/stream`;
+      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/stream?mode=${mode}`;
     } else if (streamSource === 'monitor') {
       socketUrl = `${protocol}//${window.location.hostname}:8000/ws/subscribe`;
     } else {
@@ -100,7 +103,7 @@ function App() {
         setIsStreaming(false);
         return;
       }
-      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/remote_stream?url=${encodeURIComponent(cameraUrl)}`;
+      socketUrl = `${protocol}//${window.location.hostname}:8000/ws/remote_stream?url=${encodeURIComponent(cameraUrl)}&mode=${mode}`;
     }
 
     addLog(`Connecting to ${streamSource}...`);
@@ -164,14 +167,14 @@ function App() {
       }
     };
 
-    return () => { 
+    return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       ws.close();
       if (videoRef.current?.srcObject) {
         videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       }
     };
-  }, [activeTab, isStreaming, streamSource, cameraUrl]);
+  }, [activeTab, isStreaming, streamSource, cameraUrl, mode]);
 
   // Webcam Frame Capture Loop
   useEffect(() => {
@@ -206,7 +209,7 @@ function App() {
     if (isBatch) {
       files.forEach(file => formData.append('files', file));
       try {
-        const res = await fetch('http://localhost:8000/api/batch_upload', { method: 'POST', body: formData });
+        const res = await fetch(`http://localhost:8000/api/batch_upload?mode=${mode}`, { method: 'POST', body: formData });
         const data = await res.json();
         setBatchResults(data.results);
         if (data.results && data.results.length > 0) {
@@ -227,7 +230,7 @@ function App() {
     } else {
       formData.append('file', files[0]);
       try {
-        const res = await fetch('http://localhost:8000/api/upload_image', { method: 'POST', body: formData });
+        const res = await fetch(`http://localhost:8000/api/upload_image?mode=${mode}`, { method: 'POST', body: formData });
         const data = await res.json();
         setBatchResults(prev => [data, ...prev]);
         setSelectedResult(data);
@@ -263,7 +266,7 @@ function App() {
           <div className="academic-context">
             <span className="project-id">EC367P</span>
             <div className="guide-info">
-              <strong>Guide:</strong> Dr. Jyoti Shetty<br/>
+              <strong>Guide:</strong> Dr. Jyothi Shetty<br/>
               Associate Professor, Dept. of CSE
             </div>
           </div>
@@ -276,6 +279,23 @@ function App() {
           <button className={`nav-link ${activeTab === 'analysis' ? 'active' : ''}`} onClick={() => setActiveTab('analysis')}>Offline Batch Analysis</button>
         </div>
         <div className="sys-status">
+          <div className="mode-toggle" role="group" aria-label="Inference mode"
+               style={{ display: 'inline-flex', gap: 4, marginRight: 16, padding: 3,
+                        background: 'rgba(148,163,184,0.15)', borderRadius: 8 }}>
+            {['accurate', 'fast'].map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                title={m === 'accurate' ? 'Full ensemble — highest accuracy' : 'Single detector — lowest latency'}
+                style={{
+                  cursor: 'pointer', border: 'none', borderRadius: 6,
+                  padding: '4px 12px', fontSize: 12, fontWeight: 600,
+                  textTransform: 'capitalize',
+                  background: mode === m ? (m === 'fast' ? '#f59e0b' : '#3b82f6') : 'transparent',
+                  color: mode === m ? '#fff' : '#94a3b8',
+                }}>
+                {m === 'fast' ? '⚡ Fast' : '◎ Accurate'}
+              </button>
+            ))}
+          </div>
           <div className="pulse-indicator"></div>
           <span>Engine Status: <strong>{stats.engineState}</strong></span>
         </div>

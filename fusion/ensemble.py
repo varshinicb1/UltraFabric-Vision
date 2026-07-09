@@ -25,8 +25,15 @@ class EnsembleFusion:
             if heatmap.shape[0] != target_h or heatmap.shape[1] != target_w:
                 heatmap = cv2.resize(heatmap.astype(np.float32),
                                      (target_w, target_h))
+            # Per-model min-max normalize so heatmaps on very different raw scales
+            # (PatchCore L2 vs DINO distance vs ViT-AE MSE) contribute comparably
+            # to the fused visualization instead of one washing the others out.
+            hmin, hmax = float(heatmap.min()), float(heatmap.max())
+            heatmap = (heatmap - hmin) / (hmax - hmin + 1e-8)
             heatmaps.append(heatmap)
 
+        # Model scores are already calibrated z-scores (see BaseModel), so a
+        # weighted average is scale-consistent and comparable across frames.
         final_score = float(np.average(scores, weights=self.weights))
         final_heatmap = np.average(heatmaps, axis=0, weights=self.weights)
 

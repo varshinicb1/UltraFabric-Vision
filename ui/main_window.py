@@ -77,7 +77,11 @@ class MainWindow(QMainWindow):
         ctrl_layout = QHBoxLayout()
         self.source_combo = QComboBox()
         self.source_combo.addItems(["Webcam 0", "Webcam 1", "RTSP Simulation"])
-        
+
+        # Fast = single detector (low latency); Accurate = full ensemble.
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["Accurate (Ensemble)", "Fast (Low Latency)"])
+
         self.btn_start = QPushButton("START INSPECTION")
         self.btn_start.setObjectName("ActionBtn")
         self.btn_start.clicked.connect(self.start_stream)
@@ -87,6 +91,7 @@ class MainWindow(QMainWindow):
         self.btn_stop.clicked.connect(self.stop_stream)
         
         ctrl_layout.addWidget(self.source_combo)
+        ctrl_layout.addWidget(self.mode_combo)
         ctrl_layout.addWidget(self.btn_start)
         ctrl_layout.addWidget(self.btn_stop)
         video_vbox.addLayout(ctrl_layout)
@@ -134,7 +139,8 @@ class MainWindow(QMainWindow):
         if "RTSP" in self.source_combo.currentText():
             source = "data/sample.mp4"
             
-        self.thread = VideoThread(source=source, models=self.models)
+        mode = 'fast' if 'Fast' in self.mode_combo.currentText() else 'accurate'
+        self.thread = VideoThread(source=source, models=self.models, mode=mode)
         self.thread.change_pixmap_signal.connect(self.update_ui)
         self.thread.start()
         self.start_time = time.time()
@@ -152,30 +158,31 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(np.ndarray, float, bool, float)
     def update_ui(self, cv_img, score, is_anomalous, latency):
-        # Update Metrics
-        # Normalize score for display (assuming raw score around 30 is max)
-        display_score = min(1.0, score / 40.0) 
-        self.card_score.update(f"{display_score*100:.1f} %")
+        # Scores are calibrated z-scores: defect-free fabric sits near 0 and the
+        # decision boundary is self.threshold. Express confidence relative to the
+        # threshold so the display is meaningful regardless of raw score scale.
+        thr = getattr(self.thread, 'threshold', 17.31) if self.thread else 17.31
+        ratio = score / thr if thr else 0.0                 # 1.0 == exactly at boundary
+        display_pct = max(0.0, min(1.0, ratio)) * 100.0
+        self.card_score.update(f"{display_pct:.0f}% of limit")
         self.card_fps.update(f"{latency:.1f} ms")
-        
+
         # Calculate uptime
         if self.start_time:
             elapsed = int(time.time() - self.start_time)
             mins, secs = divmod(elapsed, 60)
             self.card_uptime.update(f"{mins:02d}:{secs:02d}")
-            
-        # Severity logic
+
+        # Severity as multiples of the decision threshold.
         severity = "NONE"
         if is_anomalous:
-            if score > 0.8: severity = "CRITICAL"
-            elif score > 0.6: severity = "MEDIUM"
+            if ratio > 2.0: severity = "CRITICAL"
+            elif ratio > 1.4: severity = "MEDIUM"
             else: severity = "LOW"
-            
+
             self.status_lbl.setText("● DEFECT DETECTED")
             self.status_lbl.setObjectName("StatusDefect")
-            # Log event to sidebar if new
-            if score > 0.7:
-                self.add_log_entry(severity, score)
+            self.add_log_entry(severity, score)
         else:
             self.status_lbl.setText("● INSPECTION IN PROGRESS")
             self.status_lbl.setObjectName("StatusNormal")
@@ -195,11 +202,15 @@ class MainWindow(QMainWindow):
             self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def add_log_entry(self, severity, score):
-        # Only add log every few seconds to avoid spam
+        # Throttle to at most one entry per 1.5 s to avoid flooding the log.
+        now = time.time()
+        if now - getattr(self, "_last_log", 0.0) < 1.5:
+            return
+        self._last_log = now
         timestamp = time.strftime("%H:%M:%S")
         entry = QLabel(f"[{timestamp}] {severity} Defect (Score: {score:.2f})")
         entry.setStyleSheet("color: #EF4444; font-size: 11px; padding: 2px;")
-        if self.hist_layout.count() > 20: # Limit history
+        if self.hist_layout.count() > 20:  # Limit history
             self.hist_layout.itemAt(0).widget().deleteLater()
         self.hist_layout.addWidget(entry)
 

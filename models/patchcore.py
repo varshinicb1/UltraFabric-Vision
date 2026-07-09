@@ -6,7 +6,7 @@ import numpy as np
 import cv2
 import joblib
 import os
-from models.base import BaseModel
+from models.base import BaseModel, amp_context, batch_images
 
 
 class PatchCore(BaseModel):
@@ -41,7 +41,7 @@ class PatchCore(BaseModel):
     # ------------------------------------------------------------------
     def forward(self, x):
         self.features = []
-        with torch.no_grad():
+        with torch.no_grad(), amp_context(x.device):
             self.feature_extractor(x)
 
         pooled_features = []
@@ -54,22 +54,26 @@ class PatchCore(BaseModel):
             
             # Reshape sequence back into a 2D spatial grid
             spatial_feat = patches.transpose(1, 2).reshape(B, C, H, W)
-            
+
             pooled = torch.nn.functional.avg_pool2d(spatial_feat, 3, 1, 1)
             pooled_features.append(pooled)
-            
+
         return pooled_features
 
     # ------------------------------------------------------------------
+    def _embed(self, x):
+        """Run the backbone and return the combined patch-embedding grid
+        (1, C, H, W) in fp32."""
+        f2, f3 = self.forward(x)
+        f3 = torch.nn.functional.interpolate(f3, size=f2.shape[2:], mode='bilinear', align_corners=False)
+        return torch.cat([f2, f3], dim=1).float()
+
     def fit(self, dataloader):
-        """Build memory bank from normal training data."""
+        """Build memory bank from normal training data, then calibrate scores."""
         features = []
-        for x in dataloader:
-            x = x.to(self.device)
-            feats = self.forward(x)
-            f2, f3 = feats
-            f3 = torch.nn.functional.interpolate(f3, size=f2.shape[2:], mode='bilinear', align_corners=False)
-            f_combined = torch.cat([f2, f3], dim=1)
+        for batch in dataloader:
+            x = batch_images(batch).to(self.device)
+            f_combined = self._embed(x)
             f_combined = f_combined.permute(0, 2, 3, 1).reshape(-1, f_combined.shape[1])
             features.append(f_combined.cpu().numpy())
 
@@ -78,49 +82,67 @@ class PatchCore(BaseModel):
         idx = np.random.choice(len(self.memory_bank), min(10000, len(self.memory_bank)), replace=False)
         self.memory_bank = self.memory_bank[idx]
         self.knn.fit(self.memory_bank)
-        if hasattr(self, 'device'):
-            self.memory_bank_tensor = torch.tensor(self.memory_bank, device=self.device)
+        self.memory_bank_tensor = torch.tensor(self.memory_bank, device=self.device, dtype=torch.float32)
+        self.calibrate(dataloader)
+
+    def calibrate(self, dataloader):
+        """Record mean/std of raw anomaly scores over NORMAL data so predict()
+        can emit calibrated z-scores for a scale-consistent ensemble."""
+        raw = []
+        for batch in dataloader:
+            x = batch_images(batch).to(self.device)
+            raw.append(self._raw_score(x)[0])
+        if raw:
+            self.score_mean = float(np.mean(raw))
+            self.score_std = float(np.std(raw) + 1e-6)
 
     # ------------------------------------------------------------------
     def save_memory_bank(self, path):
-        """Persist the memory bank to disk."""
-        joblib.dump(self.memory_bank, path)
+        """Persist the memory bank and score calibration to disk."""
+        joblib.dump({
+            'memory_bank': self.memory_bank,
+            'score_mean': self.score_mean,
+            'score_std': self.score_std,
+        }, path)
 
     def load_memory_bank(self, path):
-        """Load a previously saved memory bank."""
+        """Load a memory bank. Accepts both the new dict format (with calibration)
+        and the legacy raw-ndarray format for backward compatibility."""
         if os.path.exists(path):
-            self.memory_bank = joblib.load(path)
+            data = joblib.load(path)
+            if isinstance(data, dict):
+                self.memory_bank = data['memory_bank']
+                self.score_mean = data.get('score_mean', 0.0)
+                self.score_std = data.get('score_std', 1.0)
+            else:
+                self.memory_bank = data
             self.knn.fit(self.memory_bank)
-            
-            # Pre-load to GPU if device is available
+
             device = self.device if hasattr(self, 'device') else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            self.memory_bank_tensor = torch.tensor(self.memory_bank, device=device)
+            self.memory_bank_tensor = torch.tensor(self.memory_bank, device=device, dtype=torch.float32)
             return True
         return False
 
     # ------------------------------------------------------------------
-    def predict(self, x):
-        if self.memory_bank is None:
-            return 0.5, np.zeros((x.shape[2], x.shape[3]), dtype=np.float32)
-
-        feats = self.forward(x)
-        f2, f3 = feats
-        f3 = torch.nn.functional.interpolate(f3, size=f2.shape[2:], mode='bilinear', align_corners=False)
-        f_combined = torch.cat([f2, f3], dim=1)
-
+    def _raw_score(self, x):
+        """Return (raw_score, anomaly_map@input_res) using GPU k-NN."""
+        f_combined = self._embed(x)
         b, c, h, w = f_combined.shape
         f_combined = f_combined.permute(0, 2, 3, 1).reshape(-1, c)
 
-        # GPU-accelerated nearest neighbor search
         if not hasattr(self, 'memory_bank_tensor') or self.memory_bank_tensor is None:
-            self.memory_bank_tensor = torch.tensor(self.memory_bank, device=x.device)
-            
+            self.memory_bank_tensor = torch.tensor(self.memory_bank, device=x.device, dtype=torch.float32)
+
         distances = torch.cdist(f_combined, self.memory_bank_tensor)
         min_distances, _ = torch.min(distances, dim=1)
-        
-        anomaly_map = min_distances.reshape(h, w).cpu().numpy()
-        anomaly_score = float(np.max(anomaly_map))
 
-        # Resize heatmap to original image size
+        anomaly_map = min_distances.reshape(h, w).cpu().numpy()
+        raw_score = float(np.max(anomaly_map))
         anomaly_map_resized = cv2.resize(anomaly_map, (x.shape[3], x.shape[2]))
-        return anomaly_score, anomaly_map_resized
+        return raw_score, anomaly_map_resized
+
+    def predict(self, x):
+        if self.memory_bank is None:
+            return 0.0, np.zeros((x.shape[2], x.shape[3]), dtype=np.float32)
+        raw_score, anomaly_map_resized = self._raw_score(x)
+        return self._normalize_score(raw_score), anomaly_map_resized
