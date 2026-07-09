@@ -288,18 +288,18 @@ async def upload_image(file: UploadFile = File(...), mode: str = None):
     }
 
 @app.post("/api/batch_upload")
-async def batch_upload(files: List[UploadFile] = File(...)):
+async def batch_upload(files: List[UploadFile] = File(...), mode: str = None):
     results = []
     for file in files:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if img_bgr is None:
             results.append({"filename": file.filename, "error": "Invalid image"})
             continue
-            
-        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr)
+
+        vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, mode)
         
         _, buffer = cv2.imencode('.jpg', vis)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -389,7 +389,7 @@ async def subscribe_endpoint(websocket: WebSocket):
             active_subscribers.remove(websocket)
 
 @app.websocket("/ws/remote_stream")
-async def websocket_remote_stream(websocket: WebSocket, url: str):
+async def websocket_remote_stream(websocket: WebSocket, url: str, mode: str = None):
     await websocket.accept()
     print(f"Remote Stream connected: {url}")
     cap = cv2.VideoCapture(url)
@@ -399,9 +399,9 @@ async def websocket_remote_stream(websocket: WebSocket, url: str):
             if not ret:
                 await websocket.send_json({"trace": ["ERROR: Remote stream connection lost or invalid URL"]})
                 break
-            
+
             # Process
-            vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(frame_bgr)
+            vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(frame_bgr, mode)
             
             # Encode Vis
             _, buffer = cv2.imencode('.jpg', vis)
