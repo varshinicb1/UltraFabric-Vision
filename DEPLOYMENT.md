@@ -106,10 +106,16 @@ Both write per-model score stats into the weight files and a tuned threshold to
 ## 6. Benchmark latency on your GPU
 
 ```bash
-UFV_DEVICE=cuda python inference_test.py     # prints per-image ms + FPS
+# Full benchmark: Accurate vs Fast, per-component, AMP on/off, + Markdown/JSON export
+python scripts/gpu_benchmark.py --amp both --out bench.md
+
+# Quick check
+UFV_DEVICE=cuda python inference_test.py
 ```
-Report the `mean` latency and FPS on your target GPU. That is the number to put
-in a spec sheet — not the CPU dev number.
+`gpu_benchmark.py` reports mean/p50/p95 latency, FPS, and peak VRAM with correct
+GPU timing (warm-up + `cuda.synchronize`). Quote the **Accurate**-mode mean/FPS on
+your GPU in a spec sheet — not the CPU dev number. The generated `bench.md` table
+can be pasted straight into the report.
 
 ---
 
