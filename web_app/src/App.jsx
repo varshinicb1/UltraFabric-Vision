@@ -24,6 +24,8 @@ function App() {
   const [videoMeters, setVideoMeters] = useState(5);
   const [videoReport, setVideoReport] = useState(null);
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
+  const [batchHistory, setBatchHistory] = useState([]);
+  const API = 'http://localhost:8000';
   
   const [stats, setStats] = useState({
     status: 'Ready',
@@ -254,6 +256,16 @@ function App() {
     setIsUploading(false);
   };
 
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/batch_history`);
+      const data = await res.json();
+      setBatchHistory(data.batches || []);
+    } catch { /* backend not up yet */ }
+  }, []);
+
+  useEffect(() => { if (activeTab === 'video') fetchHistory(); }, [activeTab, fetchHistory]);
+
   const handleVideoUpload = async (e) => {
     const fileList = e.target.files;
     if (!fileList || !fileList.length) return;
@@ -263,10 +275,10 @@ function App() {
     formData.append('file', fileList[0]);
     const qs = `batch=${encodeURIComponent(videoBatch)}&meters=${videoMeters}&segments=10&mode=${mode}`;
     try {
-      const res = await fetch(`http://localhost:8000/api/upload_video?${qs}`, { method: 'POST', body: formData });
+      const res = await fetch(`${API}/api/upload_video?${qs}`, { method: 'POST', body: formData });
       const data = await res.json();
       if (data.error) { console.error(data.error); }
-      else setVideoReport(data);
+      else { setVideoReport(data); fetchHistory(); }
     } catch (err) { console.error('Video inspection failed:', err); }
     setIsProcessingVideo(false);
     e.target.value = '';
@@ -480,15 +492,37 @@ function App() {
                 </div>
               </div>
 
+              {batchHistory.length > 0 && (
+                <div style={{ marginTop: 8, marginBottom: 4 }}>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>INSPECTED BATCHES ({batchHistory.length})</div>
+                  <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+                    {batchHistory.map((b) => (
+                      <div key={b.seq} onClick={() => setVideoReport(b)}
+                        style={{ cursor: 'pointer', minWidth: 130, padding: '8px 10px', borderRadius: 8,
+                                 border: `1px solid ${b.passed ? '#14532d' : '#7f1d1d'}`,
+                                 background: b.passed ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)' }}>
+                        <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: 13 }}>{b.batch}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: b.passed ? '#22c55e' : '#ef4444' }}>
+                          {b.passed ? '✓ PASS' : '✗ DEFECT'}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#64748b' }}>
+                          {b.passed ? 'clean' : `zones ${b.zones_with_defects.join(',')}`}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {isProcessingVideo && <div style={{ padding: 20, color: '#94a3b8' }}>Running inference on every frame… this runs on the GPU and may take a few seconds per batch.</div>}
 
               {videoReport && (
                 <div className="video-report" style={{ marginTop: 16 }}>
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14 }}>
                     {[['Batch', videoReport.batch],
-                      ['Defect frames', `${videoReport.defect_frames}/${videoReport.processed_frames} (${(videoReport.defect_rate*100).toFixed(0)}%)`],
-                      ['Defective zones', videoReport.zones_with_defects.length ? videoReport.zones_with_defects.join(', ') : 'none'],
-                      ['Device', videoReport.device]].map(([k,v]) => (
+                      ['Result', (videoReport.passed ?? (videoReport.defect_frames === 0)) ? '✓ PASS' : '✗ DEFECT'],
+                      ['Defect frames', `${videoReport.defect_frames}/${videoReport.processed_frames} (${(((videoReport.defect_rate ?? (videoReport.defect_frames/Math.max(1,videoReport.processed_frames)))*100)).toFixed(0)}%)`],
+                      ['Defective zones', videoReport.zones_with_defects.length ? videoReport.zones_with_defects.join(', ') : 'none']].map(([k,v]) => (
                       <div key={k} className="s-card" style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, padding: '10px 14px', minWidth: 130 }}>
                         <label style={{ fontSize: 11, color: '#64748b' }}>{k}</label>
                         <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{String(v)}</div>
@@ -498,6 +532,16 @@ function App() {
 
                   <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>DEFECT LOCATION MAP (along {videoReport.batch_length_m} m batch)</div>
                   <img src={videoReport.defect_map} alt="defect map" style={{ width: '100%', borderRadius: 8, border: '1px solid #1e293b' }} />
+
+                  {videoReport.annotated_video && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>ANNOTATED VIDEO (boxes + position overlay)</div>
+                      <video src={`${API}${videoReport.annotated_video}`} controls
+                             style={{ width: '100%', maxWidth: 420, borderRadius: 8, border: '1px solid #1e293b', background: '#000' }} />
+                      <div><a href={`${API}${videoReport.annotated_video}`} download
+                             style={{ color: '#3b82f6', fontSize: 12 }}>⬇ Download annotated video</a></div>
+                    </div>
+                  )}
 
                   {videoReport.defect_events.length > 0 && (
                     <div style={{ marginTop: 14 }}>
