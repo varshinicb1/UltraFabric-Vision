@@ -74,6 +74,28 @@ def build_report(frames_info, batch, meters, segments, fps, total, n_proc,
     }
 
 
+def annotate_frame(frame, rec, batch, segments, src_size=224):
+    """Draw defect boxes, a batch/position banner, and a red border (if defect)
+    onto ``frame`` in place. ``rec`` is a frame_record; boxes are in src_size
+    (heatmap) coords and are scaled to the frame."""
+    H, W = frame.shape[:2]
+    sx, sy = W / float(src_size), H / float(src_size)
+    for b in (rec.get('boxes') or []):
+        x, y = int(b['x'] * sx), int(b['y'] * sy)
+        w, h = int(b['w'] * sx), int(b['h'] * sy)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        cv2.putText(frame, f"DEFECT {b['area_frac']*100:.1f}%", (x, max(12, y - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+    banner = (f"Batch {batch} | {rec['position_m']:.2f}m | zone {rec['zone']}/{segments} | "
+              f"score {rec['score']:.1f} | {'DEFECT' if rec['is_defect'] else 'OK'}")
+    cv2.rectangle(frame, (0, 0), (W, 18), (0, 0, 0), -1)
+    cv2.putText(frame, banner, (4, 13), cv2.FONT_HERSHEY_SIMPLEX, 0.38,
+                (0, 0, 255) if rec['is_defect'] else (0, 220, 0), 1)
+    if rec['is_defect']:
+        cv2.rectangle(frame, (0, 0), (W - 1, H - 1), (0, 0, 255), 3)
+    return frame
+
+
 def build_defect_map(frames_info, meters, segments, batch, threshold, defect_frames, n_proc):
     """Render a horizontal strip along the batch length, red where defective."""
     W, H = 1000, 140

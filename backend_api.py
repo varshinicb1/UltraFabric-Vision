@@ -51,6 +51,12 @@ FAST_MODEL = None          # the single detector object used in fast mode
 FAST_MODEL_KEY = 'dino'
 FAST_THRESHOLD = config.default_threshold
 
+# Batch-video inspection: saved annotated videos + in-memory inspection history.
+BATCH_OUT_DIR = os.path.join(project_root, 'batch_outputs')
+os.makedirs(BATCH_OUT_DIR, exist_ok=True)
+BATCH_HISTORY = []
+TS_COUNTER = {'n': 1}
+
 app = FastAPI(title="FabricAI Pro Web Engine", version="1.0")
 
 # Enable CORS for the Next.js frontend
@@ -339,12 +345,20 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
     suffix = os.path.splitext(file.filename or '')[1] or '.mp4'
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp.write(contents); tmp.close()
+
+    safe_batch = "".join(c for c in batch if c.isalnum() or c in ('-', '_')) or "batch"
+    ann_name = f"{safe_batch}_{TS_COUNTER['n']}_annotated.mp4"
+    TS_COUNTER['n'] += 1
+    ann_path = os.path.join(BATCH_OUT_DIR, ann_name)
     try:
         cap = cv2.VideoCapture(tmp.name)
         if not cap.isOpened():
             return JSONResponse(status_code=400, content={"error": "cannot decode video"})
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
         fps = cap.get(cv2.CAP_PROP_FPS) or 15.0
+        W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 224
+        H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 224
+        vw = cv2.VideoWriter(ann_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (W, H))
 
         frames_info, idx, n_proc = [], -1, 0
         while True:
@@ -353,6 +367,7 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
                 break
             idx += 1
             if idx % max(1, stride) != 0:
+                vw.write(frame)
                 continue
             n_proc += 1
             tensor = preprocess_frame(frame, (224, 224), device,
@@ -365,10 +380,14 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
             boxes = detect_defect_regions(hmap, config.min_defect_area_frac,
                                           config.defect_intensity_frac) if score > threshold else []
             area = sum(b['area_frac'] for b in boxes)
-            frames_info.append(batch_inspect.frame_record(
+            rec = batch_inspect.frame_record(
                 idx, score, score > threshold and len(boxes) > 0, boxes, area,
-                fps, total, meters, segments))
+                fps, total, meters, segments)
+            frames_info.append(rec)
+            batch_inspect.annotate_frame(frame, rec, batch, segments)
+            vw.write(frame)
         cap.release()
+        vw.release()
     finally:
         try:
             os.unlink(tmp.name)
@@ -382,7 +401,37 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
                                         threshold, report['defect_frames'], n_proc)
     _, buf = cv2.imencode('.png', dm)
     report['defect_map'] = "data:image/png;base64," + base64.b64encode(buf).decode('utf-8')
+    report['annotated_video'] = f"/api/batch_video/{ann_name}"
+    report['passed'] = report['defect_frames'] == 0
+
+    # Record in batch history (newest first, capped).
+    BATCH_HISTORY.insert(0, {
+        'batch': report['batch'], 'source': report['source'], 'mode': mode,
+        'passed': report['passed'], 'defect_frames': report['defect_frames'],
+        'processed_frames': report['processed_frames'],
+        'zones_with_defects': report['zones_with_defects'],
+        'batch_length_m': meters, 'defect_events': report['defect_events'],
+        'segment_summary': report['segment_summary'],
+        'defect_map': report['defect_map'], 'annotated_video': report['annotated_video'],
+        'seq': TS_COUNTER['n'],
+    })
+    del BATCH_HISTORY[50:]
     return report
+
+@app.get("/api/batch_video/{name}")
+def get_batch_video(name: str):
+    """Serve a saved annotated batch video for download/playback."""
+    from fastapi.responses import FileResponse
+    safe = os.path.basename(name)
+    path = os.path.join(BATCH_OUT_DIR, safe)
+    if not os.path.exists(path):
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    return FileResponse(path, media_type="video/mp4", filename=safe)
+
+@app.get("/api/batch_history")
+def batch_history():
+    """List previously inspected batches (newest first) with pass/fail summary."""
+    return {"count": len(BATCH_HISTORY), "batches": BATCH_HISTORY}
 
 @app.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):
