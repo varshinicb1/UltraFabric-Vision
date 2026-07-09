@@ -53,10 +53,30 @@ Pairwise Pearson correlations of the detectors' defect scores confirm genuine di
 
 \section{Latency}
 
-On the reference CPU workstation (no GPU), the full pipeline processes a frame end-to-end in approximately $1.2$~s---adequate for offline batch inspection but not for continuous line use. The implemented optimizations (unified GPU nearest-neighbour search, fp16 mixed precision, single-pass attention, start-up warm-up) target the GPU path, for which the per-component profile projects a total near $53$~ms, i.e.\ about $19$~FPS. These GPU figures are architectural projections and must be confirmed on the target accelerator; the optimizations they rest on are implemented and verified for correctness, but their realized speedup is hardware-dependent.
+Latency was measured on an NVIDIA RTX~4050 laptop GPU (6~GB, CUDA~12.1) under fp16 automatic mixed precision, using correct GPU timing (warm-up followed by \texttt{cuda.synchronize}, 150 iterations). Table~\ref{tab:gpu} summarizes the result. The full three-detector ensemble (\emph{Accurate} mode) runs at $37.3$~ms per frame---\textbf{$26.8$~FPS}, comfortably above the $15$~FPS continuous-inspection threshold---while using only $641$~MB of GPU memory. A single-detector \emph{Fast} mode reaches $110$~FPS for latency-critical or edge use. Mixed precision improves the ensemble from $53.4$~ms (fp32) to $37.3$~ms (fp16) with no change in ranking. Thus, on commodity laptop-class GPU hardware, the system achieves high accuracy and real-time latency simultaneously rather than trading one against the other; on CPU the ensemble is limited to offline use ($\sim$2~FPS) while Fast mode still sustains $\sim$38~FPS.
+
+\begin{table}[htb]
+\centering
+\caption{Measured inference latency on an NVIDIA RTX~4050 (fp16 AMP) versus CPU.}
+\label{tab:gpu}
+\begin{tabular}{lccc}
+\hline
+\textbf{Path} & \textbf{CPU (ms)} & \textbf{GPU (ms)} & \textbf{GPU FPS} \\
+\hline
+Accurate (ensemble) & 463 & 37.3 & 26.8 \\
+Fast (single detector) & 26.0 & 9.0 & 110.7 \\
+\hline
+Peak GPU memory & --- & \multicolumn{2}{c}{641 MB} \\
+\hline
+\end{tabular}
+\end{table}
 
 \section{End-to-End Verification}
 
 An automated test suite validates both the embeddable SDK and the HTTP service on real samples. It confirms that defect-free images score near zero and pass, that defective images exceed the threshold and are flagged, that the response contract is well-formed, and that malformed inputs are rejected cleanly. All eight tests pass, demonstrating that the deployed service reproduces the calibrated decision behaviour observed in offline evaluation.
 
-In summary, the calibrated ensemble achieves perfect discrimination with a wide margin on the evaluation benchmark, the three pathways are quantitatively diverse, and the full service is verified end-to-end. The principal caveat---that these results are obtained on synthetic data---motivates the future work discussed in Chapter~6.
+\section{Batch-Level Video Inspection}
+
+The framework was extended and demonstrated on the industrial batch workflow, in which a fabric batch recorded from a conveyor is inspected as a unit and localized by position. On a $5$~m demonstration batch with defects placed at $1.08$, $2.37$ and $3.83$~m, the system reported three distinct defect events at $0.57$--$1.22$~m, $2.04$--$2.64$~m and $3.66$--$4.33$~m (zones 2--3, 5--6 and 8--9), correctly localizing every defect; the reported spans are wider than the point defects because each defect remains in the camera view over several frames as the fabric scrolls past. A defect-free batch was correctly reported as passing with zero flagged frames, confirming that the minimum-defect-size filter (Equation~in Chapter~3) suppresses spurious detections on clean cloth. For each batch the system produces an annotated video, a defect-location map along the batch length, and an automatically generated quality-control PDF record carrying the pass/reject verdict, defect positions, and per-zone table---demonstrating a complete, traceable batch-wise inspection suitable for factory quality control.
+
+In summary, the calibrated ensemble achieves perfect discrimination with a wide margin on the evaluation benchmark, the three pathways are quantitatively diverse, the service is verified end-to-end, and real-time throughput ($26.8$~FPS) is confirmed on RTX~4050 GPU hardware. The principal caveat---that these results are obtained on synthetic data---motivates the future work discussed in Chapter~6.
