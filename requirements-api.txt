@@ -22,5 +22,8 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.9
 
+# QC PDF batch reports
+reportlab>=4.0.0
+
 # Optional GPU telemetry (safe to omit; code degrades gracefully)
 py3nvml>=0.2.7
