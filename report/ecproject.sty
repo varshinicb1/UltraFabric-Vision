@@ -328,12 +328,16 @@
 {\noindent\large\bfseries\@stuNameC\unskip\strut}\hfill{\large\bfseries\@stuUSNC\unskip\strut\par}
 \ifIDP\vspace{0.125cm}\else\vspace{0.25cm}\fi
 {\noindent\large\bfseries\@stuNameD\unskip\strut}\hfill{\large\bfseries\@stuUSND\unskip\strut\par}
-% Ver 3.8: 
+% Ver 3.8:
 \ifIDP
+\ifStuNameEUsed
 \vspace{0.125cm}
 {\noindent\large\bfseries\@stuNameE\unskip\strut}\hfill{\large\bfseries\@stuUSNE\unskip\strut\par}
+\fi
+\ifStuNameFUsed
 \vspace{0.125cm}
 {\noindent\large\bfseries\@stuNameF\unskip\strut}\hfill{\large\bfseries\@stuUSNF\unskip\strut\par}
+\fi
 \fi
 \fi
 %\fi % Intern
