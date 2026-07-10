@@ -191,8 +191,7 @@ def process_frame(img_bgr, mode=None):
     attn_maps = attn[0] if attn is not None else np.stack([hmap] * 6)
     latency = (time.time() - t0) * 1000
 
-    # Threshold for defect (mode-appropriate, calibrated).
-    is_anomalous = score > active_threshold
+    # (defect decision computed after localization below)
 
     # Create Neural Insight Grid.
     # Normalize each head for visualization
@@ -209,34 +208,37 @@ def process_frame(img_bgr, mode=None):
     neural_grid = cv2.resize(mean_attn.astype(np.float32), (14, 14), interpolation=cv2.INTER_CUBIC)
     neural_grid = (neural_grid / (neural_grid.max() + 1e-8) * 100).astype(np.float32).tolist()
 
-    # Create visual
+    # Localized defect detection with size + coverage gates. A whole-frame
+    # anomaly (blank/black frame, wrong material, out-of-distribution) produces
+    # NO boxes and is not reported as a defect -- this prevents "boxes
+    # everywhere" on non-fabric input.
     vis = apply_heatmap(img_resized, hmap)
     boxes = []
-    
-    # Create detailed trace
+    coverage = 0.0
+    if score > active_threshold:
+        det, coverage = detect_defect_regions(
+            hmap, config.min_defect_area_frac, config.defect_intensity_frac,
+            config.max_defect_coverage_frac, return_coverage=True)
+        for b in det:
+            boxes.append({"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"]})
+            cv2.rectangle(vis, (b["x"], b["y"]), (b["x"] + b["w"], b["y"] + b["h"]), (0, 0, 255), 2)
+            cv2.putText(vis, "DEFECT", (b["x"], max(12, b["y"] - 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+
+    # A defect requires the score over threshold AND at least one localized region.
+    is_anomalous = (score > active_threshold) and (len(boxes) > 0)
+
     trace = [
         f"[T+{latency*0.05:.2f}ms] Frame ingested: {img_bgr.shape[1]}x{img_bgr.shape[0]} BGR",
-        f"[T+{latency*0.15:.2f}ms] DINO-v2 Multi-Head Attention computed ({len(processed_heads)} heads)",
-        f"[T+{latency*0.35:.2f}ms] Extracting Patch Descriptors (dim=768, patches=784)",
-        f"[T+{latency*0.55:.2f}ms] K-Nearest Neighbor memory bank alignment (K=1)",
-        f"[T+{latency*0.75:.2f}ms] Mahalanobis anomaly scoring: {score:.2f}",
-        f"[T+{latency*0.95:.2f}ms] Global attention pooling & defect localization",
+        f"[T+{latency*0.20:.2f}ms] Ensemble anomaly score {score:.2f} (threshold {active_threshold:.2f})",
+        f"[T+{latency*0.55:.2f}ms] Anomalous area coverage: {coverage*100:.0f}% of frame",
     ]
-
     if is_anomalous:
-        hmap_norm = cv2.normalize(hmap, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-        _, defect_mask = cv2.threshold(hmap_norm, 150, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(defect_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for cnt in contours:
-            if cv2.contourArea(cnt) > 50:
-                x, y, w, h = cv2.boundingRect(cnt)
-                boxes.append({"x": int(x), "y": int(y), "w": int(w), "h": int(h)})
-                cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                cv2.putText(vis, "DEFECT", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
-        trace.append(f"[T+{latency:.2f}ms] Localization: {len(boxes)} anomaly clusters segmented")
+        trace.append(f"[T+{latency:.2f}ms] Localization: {len(boxes)} defect region(s) segmented")
+    elif score > active_threshold:
+        trace.append(f"[T+{latency:.2f}ms] Non-localized anomaly ({coverage*100:.0f}% coverage): likely non-fabric / out-of-distribution input, not a defect")
     else:
-        trace.append(f"[T+{latency:.2f}ms] Global score {score:.2f}% below activation threshold")
+        trace.append(f"[T+{latency:.2f}ms] Score below threshold: fabric within tolerance")
 
     return vis, score, is_anomalous, latency, neural_grid, processed_heads, boxes, trace
 

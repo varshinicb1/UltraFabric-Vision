@@ -67,24 +67,34 @@ def load_threshold(calibration_path, default=3.0):
     return float(default)
 
 
-def detect_defect_regions(heatmap, min_area_frac=0.004, intensity_frac=0.55):
-    """Extract sized defect regions from an anomaly heatmap.
+def detect_defect_regions(heatmap, min_area_frac=0.004, intensity_frac=0.55,
+                          max_coverage_frac=0.45, return_coverage=False):
+    """Extract sized, LOCALIZED defect regions from an anomaly heatmap.
 
     Returns a list of boxes ``{x, y, w, h, area_frac}`` in the heatmap's own
-    pixel coordinates, keeping only connected regions whose area is at least
-    ``min_area_frac`` of the frame. This is what enforces a minimum defect size,
-    so tiny texture specks are not reported. Coordinates are normalized-agnostic;
-    scale them to the display resolution as needed.
+    pixel coordinates. Two gates apply:
+      * minimum size -- regions below ``min_area_frac`` of the frame are dropped
+        (suppresses tiny texture specks);
+      * maximum coverage -- if the thresholded anomaly covers MORE than
+        ``max_coverage_frac`` of the frame, the anomaly is not localized (wrong
+        material / blank / out-of-distribution input, e.g. a black screen), so
+        NO boxes are returned. This is what prevents "boxes everywhere" on
+        non-fabric input.
+
+    With ``return_coverage=True`` returns ``(boxes, coverage_fraction)``.
     """
     h, w = heatmap.shape[:2]
     hm = heatmap.astype(np.float32)
     rng = hm.max() - hm.min()
     if rng < 1e-9:
-        return []
+        return ([], 0.0) if return_coverage else []
     norm = (hm - hm.min()) / rng
-    mask = (norm >= intensity_frac).astype(np.uint8) * 255
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = (norm >= intensity_frac).astype(np.uint8)
+    coverage = float(mask.mean())
+    # Whole-frame anomaly -> not a localized defect: report no boxes.
+    if coverage > max_coverage_frac:
+        return ([], coverage) if return_coverage else []
+    mask = cv2.morphologyEx(mask * 255, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     min_area = float(min_area_frac) * h * w
     boxes = []
@@ -94,7 +104,7 @@ def detect_defect_regions(heatmap, min_area_frac=0.004, intensity_frac=0.55):
             x, y, bw, bh = cv2.boundingRect(cnt)
             boxes.append({'x': int(x), 'y': int(y), 'w': int(bw), 'h': int(bh),
                           'area_frac': round(float(area) / (h * w), 5)})
-    return boxes
+    return (boxes, coverage) if return_coverage else boxes
 
 
 def load_calibration(calibration_path):

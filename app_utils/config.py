@@ -71,6 +71,11 @@ class Config:
         # Relative intensity (0-1) at which the fused heatmap is thresholded when
         # extracting defect regions for localization / sizing.
         self.defect_intensity_frac = _env_float('UFV_DEFECT_INTENSITY', 0.55)
+        # If a single-frame anomaly covers MORE than this fraction of the frame,
+        # it is not a localized defect but a whole-frame anomaly (wrong material,
+        # blank/black frame, out-of-distribution) -- no defect boxes are drawn.
+        # This prevents "boxes everywhere" on non-fabric input.
+        self.max_defect_coverage_frac = _env_float('UFV_MAX_COVERAGE', 0.45)
         # Temporal smoothing window over the fused score. Small so real transient
         # defects are not averaged away at line speed.
         self.temporal_window = _env_int('UFV_TEMPORAL_WINDOW', 3)

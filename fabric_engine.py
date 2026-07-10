@@ -137,13 +137,15 @@ class InferenceEngine:
             torch.cuda.synchronize()
         latency_ms = (time.time() - t0) * 1000.0
 
-        # Size-gated defect regions: a frame counts as defective only if the
-        # score exceeds the threshold AND there is at least one connected
-        # anomalous region above the minimum defect size.
-        boxes = []
+        # Size- and coverage-gated defect regions: a frame counts as defective
+        # only if the score exceeds the threshold AND there is a LOCALIZED
+        # anomalous region above the minimum size. A whole-frame anomaly (wrong
+        # material / blank frame) yields no boxes and is not called a defect.
+        boxes, coverage = [], 0.0
         if score > threshold:
-            boxes = detect_defect_regions(heatmap, config.min_defect_area_frac,
-                                          config.defect_intensity_frac)
+            boxes, coverage = detect_defect_regions(
+                heatmap, config.min_defect_area_frac, config.defect_intensity_frac,
+                config.max_defect_coverage_frac, return_coverage=True)
         area = round(sum(b['area_frac'] for b in boxes), 5)
         return InspectionResult(
             score=float(score),
