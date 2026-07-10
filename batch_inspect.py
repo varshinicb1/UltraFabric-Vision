@@ -3,8 +3,53 @@ Shared batch-video inspection logic (used by the CLI scripts/video_inference.py
 and the REST endpoint /api/upload_video). Turns a stream of per-frame detection
 results into a localized, per-zone batch report plus a defect-location map.
 """
+import os
+import shutil
+import subprocess
 import numpy as np
 import cv2
+
+
+def _find_ffmpeg():
+    """Locate an ffmpeg binary (PATH or common Windows install locations)."""
+    exe = shutil.which('ffmpeg')
+    if exe:
+        return exe
+    for c in (r'C:\ffmpeg\bin\ffmpeg.exe',
+              os.path.expanduser(r'~\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe')):
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def to_browser_h264(path):
+    """Transcode an OpenCV-written video (mp4v / MPEG-4 Part 2) to H.264 in place
+    so it plays in a browser <video> element. Chrome/Edge/Firefox cannot decode
+    the mp4v that cv2.VideoWriter produces; H.264 (yuv420p) + faststart can.
+
+    Returns True on success. If ffmpeg is unavailable or fails, the original
+    file is left untouched and False is returned (playback simply falls back to
+    download).
+    """
+    ff = _find_ffmpeg()
+    if not ff or not os.path.isfile(path):
+        return False
+    tmp = path + '.h264.mp4'
+    try:
+        subprocess.run(
+            [ff, '-y', '-loglevel', 'error', '-i', path,
+             '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23',
+             '-preset', 'veryfast', '-movflags', '+faststart', '-an', tmp],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        return False
 
 
 def frame_record(idx, score, is_defect, boxes, area_frac, fps, total, meters, segments):

@@ -393,6 +393,8 @@ async def upload_video(file: UploadFile = File(...), batch: str = "B001",
             vw.write(frame)
         cap.release()
         vw.release()
+        # Transcode to browser-playable H.264 so the dashboard <video> can play it.
+        batch_inspect.to_browser_h264(ann_path)
     finally:
         try:
             os.unlink(tmp.name)

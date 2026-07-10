@@ -30,6 +30,7 @@ import numpy as np
 import cv2
 from fabric_engine import InferenceEngine
 from app_utils.config import config
+import batch_inspect
 
 
 def main():
@@ -115,6 +116,7 @@ def main():
                             'defect_area_frac': r.defect_area_frac, 'boxes': r.boxes or []})
     cap.release()
     vw.release()
+    batch_inspect.to_browser_h264(ann_path)  # H.264 so it plays in a browser
 
     # Contiguous defect runs -> defect events with a position range
     run = None
