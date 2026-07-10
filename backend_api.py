@@ -36,6 +36,7 @@ import tempfile
 import datetime
 import batch_inspect
 import qc_report
+import line_control
 
 # Apply performance flags from config
 model_base.USE_AMP = config.use_amp
@@ -465,7 +466,11 @@ async def stream_endpoint(websocket: WebSocket):
 
             if img_bgr is not None:
                 vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, ws_mode)
-                
+
+                # Stop the conveyor motor when a defect is detected (best-effort,
+                # no-op unless UFV_ESP32_URL is configured; see line_control.py).
+                line_control.notify(is_anomalous)
+
                 _, buffer = cv2.imencode('.jpg', vis)
                 out_base64 = base64.b64encode(buffer).decode('utf-8')
                 
