@@ -450,6 +450,70 @@ def batch_history():
     """List previously inspected batches (newest first) with pass/fail summary."""
     return {"count": len(BATCH_HISTORY), "batches": BATCH_HISTORY}
 
+
+# ---------------------------------------------------------------------------
+# Assembly-line (conveyor) control -- proxied to the ESP32 so the dashboard
+# only ever talks to this backend. All handlers degrade gracefully when no
+# board is configured or reachable (never 500).
+# ---------------------------------------------------------------------------
+class LineUrl(BaseModel):
+    url: str
+
+class LineAuto(BaseModel):
+    cloth: float          # cloth (batch) length, metres
+    line: float           # total line length, metres
+    speed: float          # motor speed, metres/min
+
+class LineJog(BaseModel):
+    revs: float = 1.0     # revolutions to move for calibration
+
+class LineCalibrate(BaseModel):
+    measured_m: float     # measured belt travel, metres
+    revs: float = 1.0     # revolutions the belt was moved during measurement
+
+@app.get("/api/line/status")
+def line_status():
+    """Connection + live state of the conveyor controller (always 200)."""
+    return line_control.status()
+
+@app.post("/api/line/connect")
+def line_connect(body: LineUrl):
+    """Set/persist the ESP32 URL and immediately report whether it responds."""
+    line_control.set_url(body.url)
+    return line_control.status()
+
+@app.post("/api/line/start")
+def line_start():
+    ok, msg = line_control.start()
+    return {"ok": ok, "message": msg}
+
+@app.post("/api/line/stop")
+def line_stop():
+    ok, msg = line_control.stop()
+    return {"ok": ok, "message": msg}
+
+@app.post("/api/line/jog")
+def line_jog(body: LineJog):
+    ok, msg = line_control.jog(body.revs)
+    return {"ok": ok, "message": msg, "revs": body.revs}
+
+@app.post("/api/line/calibrate")
+def line_calibrate(body: LineCalibrate):
+    """Compute mm-per-revolution from a measured travel and store it on the board."""
+    if body.measured_m <= 0 or body.revs <= 0:
+        return {"ok": False, "message": "measured_m and revs must be > 0"}
+    ok, mm_per_rev = line_control.calibrate(body.measured_m, body.revs)
+    return {"ok": ok, "mm_per_rev": mm_per_rev}
+
+@app.post("/api/line/auto")
+def line_auto(body: LineAuto):
+    """Configure cloth/line/speed and start the automatic batch run."""
+    if body.cloth <= 0 or body.line < body.cloth or body.speed <= 0:
+        return {"ok": False, "message": "need cloth>0, line>=cloth, speed>0"}
+    ok, msg = line_control.auto(body.cloth, body.line, body.speed)
+    batches = int(body.line // body.cloth)
+    return {"ok": ok, "message": msg, "batches": batches}
+
 @app.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):
     await websocket.accept()

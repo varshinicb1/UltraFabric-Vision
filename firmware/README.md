@@ -20,16 +20,18 @@ backend:
 > Serial note: the Arduino uses its hardware `Serial` (pins D0/D1) to talk to the
 > ESP32, so unplug that link while flashing the Arudino over USB, then reconnect.
 
-## Calibrate before first use (important)
+## Calibrate from the dashboard (no reflashing)
 Distances only work if the Arduino knows how far the belt moves per motor turn.
-In `conveyor_arduino.ino` set:
+This is now done from the dashboard's **Line Automation** tab and stored in the
+Arduino's EEPROM, so you calibrate **once** and it survives power cycles:
 
-```cpp
-const float MM_PER_REV = 125.7;  // = pi * drive-roller diameter (mm)
-```
+1. Enter the ESP32 IP and click **Connect**.
+2. Under **Calibrate belt travel**, set a number of revolutions and click **Jog**.
+3. Measure how far the fabric actually moved and type it into **Measured travel (m)**.
+4. Click **Save calibration** — the backend computes mm-per-rev and stores it.
 
-Measure it: mark the belt, command exactly one revolution, measure travel in mm.
-Everything (cloth length, line length, speed) is derived from this value.
+The `DEFAULT_MM_PER_REV` constant in `conveyor_arduino.ino` is only the value
+used before the first calibration.
 
 ## Feature 1 — Motor stops on defect
 The backend calls `GET http://<esp32-ip>/defect` the instant a defect is seen on

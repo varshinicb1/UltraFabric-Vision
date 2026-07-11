@@ -39,6 +39,8 @@ String lineStatus = "idle";     // idle | running | stopped | done
 String stopReason = "";         // manual | defect
 int    curBatch = 0, totBatch = 0;
 long   posMm = 0;
+float  mmPerRev = 0;            // current calibration reported by the Arduino
+bool   jogDone = false;         // set true when a JOG completes (dashboard polls)
 
 void sendToMotor(const String& s) { Serial2.println(s); }
 
@@ -119,10 +121,27 @@ void handleConfig() {
   server.send(200, "text/plain", "configured");
 }
 
+// Move an exact number of revolutions so the operator can measure belt travel.
+void handleJog() {
+  float revs = server.hasArg("revs") ? server.arg("revs").toFloat() : 1.0;
+  jogDone = false;
+  sendToMotor("JOG " + String(revs, 2));
+  lineStatus = "running"; stopReason = "";
+  server.send(200, "text/plain", "jogging");
+}
+
+// Set + persist mm-per-revolution calibration on the Arduino.
+void handleCal() {
+  if (server.hasArg("mmrev")) sendToMotor("CAL " + String(server.arg("mmrev").toFloat(), 3));
+  server.send(200, "text/plain", "calibrated");
+}
+
 void handleStatus() {
   String j = "{\"status\":\"" + lineStatus + "\",\"reason\":\"" + stopReason +
              "\",\"batch\":" + String(curBatch) + ",\"total\":" + String(totBatch) +
-             ",\"pos_m\":" + String(posMm / 1000.0, 2) + "}";
+             ",\"pos_m\":" + String(posMm / 1000.0, 2) +
+             ",\"mm_per_rev\":" + String(mmPerRev, 2) +
+             ",\"jog_done\":" + String(jogDone ? "true" : "false") + "}";
   server.sendHeader("Access-Control-Allow-Origin", "*");   // allow the dashboard to poll
   server.send(200, "application/json", j);
 }
@@ -149,6 +168,11 @@ void readMotorSerial() {
       stopReason = l.substring(8);
     } else if (l == "RUN_DONE") {
       lineStatus = "done";
+    } else if (l.startsWith("CAL ")) {
+      mmPerRev = l.substring(4).toFloat();
+    } else if (l == "JOG_DONE") {
+      jogDone = true;
+      lineStatus = "idle";
     }
   }
 }
@@ -168,6 +192,8 @@ void setup() {
   server.on("/defect", handleDefect);
   server.on("/auto",   handleAuto);
   server.on("/config", handleConfig);
+  server.on("/jog",    handleJog);
+  server.on("/cal",    handleCal);
   server.on("/status", handleStatus);
   server.begin();
 }

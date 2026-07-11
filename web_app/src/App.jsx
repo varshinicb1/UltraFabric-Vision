@@ -26,7 +26,72 @@ function App() {
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [batchHistory, setBatchHistory] = useState([]);
   const API = 'http://localhost:8000';
-  
+
+  // ===== Assembly-line (conveyor) automation =====
+  const [lineUrl, setLineUrl] = useState('');
+  const [lineStat, setLineStat] = useState({ configured: false, connected: false });
+  const [lineBusy, setLineBusy] = useState(false);
+  const [lineMsg, setLineMsg] = useState('');
+  const [calRevs, setCalRevs] = useState(2);
+  const [calMeasured, setCalMeasured] = useState('');
+  const [clothLen, setClothLen] = useState(1.0);
+  const [lineLen, setLineLen] = useState(5.0);
+  const [motorSpeed, setMotorSpeed] = useState(2.0);
+
+  const lineApi = useCallback(async (path, body) => {
+    try {
+      const opt = body
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : { method: 'POST' };
+      const res = await fetch(`${API}/api/line/${path}`, opt);
+      return await res.json();
+    } catch (e) { return { ok: false, message: String(e) }; }
+  }, []);
+
+  const refreshLine = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/line/status`);
+      setLineStat(await res.json());
+    } catch { setLineStat({ configured: false, connected: false }); }
+  }, []);
+
+  const connectLine = async () => {
+    if (!lineUrl.trim()) { setLineMsg('Enter the ESP32 address first.'); return; }
+    setLineBusy(true); setLineMsg('Connecting…');
+    const d = await lineApi('connect', { url: lineUrl });
+    setLineStat(d);
+    setLineMsg(d.connected ? '✓ Connected to conveyor controller' : `✗ Not reachable${d.error ? ': ' + d.error : ''}`);
+    setLineBusy(false);
+  };
+  const lineStart = async () => { setLineMsg('▶ Start sent'); await lineApi('start'); refreshLine(); };
+  const lineStop = async () => { setLineMsg('■ Stop sent'); await lineApi('stop'); refreshLine(); };
+  const lineJog = async () => {
+    setLineMsg(`Jogging ${calRevs} revolution(s) — measure the belt travel…`);
+    await lineApi('jog', { revs: Number(calRevs) });
+  };
+  const lineCalibrate = async () => {
+    const m = parseFloat(calMeasured);
+    if (!(m > 0)) { setLineMsg('Enter the measured belt travel (metres) first.'); return; }
+    const d = await lineApi('calibrate', { measured_m: m, revs: Number(calRevs) });
+    setLineMsg(d.ok ? `✓ Calibrated & saved: ${d.mm_per_rev} mm/rev` : `✗ Calibration failed: ${d.message || ''}`);
+    refreshLine();
+  };
+  const lineAuto = async () => {
+    if (!(Number(clothLen) > 0) || !(Number(lineLen) >= Number(clothLen)) || !(Number(motorSpeed) > 0)) {
+      setLineMsg('Need cloth > 0, line ≥ cloth, and speed > 0.'); return;
+    }
+    const d = await lineApi('auto', { cloth: Number(clothLen), line: Number(lineLen), speed: Number(motorSpeed) });
+    setLineMsg(d.ok ? `✓ Auto recording started: ${d.batches} batch(es)` : `✗ Could not start: ${d.message || ''}`);
+    refreshLine();
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'line') return;
+    refreshLine();
+    const t = setInterval(refreshLine, 1500);
+    return () => clearInterval(t);
+  }, [activeTab, refreshLine]);
+
   const [stats, setStats] = useState({
     status: 'Ready',
     score: 0,
@@ -313,6 +378,7 @@ function App() {
           <button className={`nav-link ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>Live Stream Monitoring</button>
           <button className={`nav-link ${activeTab === 'analysis' ? 'active' : ''}`} onClick={() => setActiveTab('analysis')}>Offline Batch Analysis</button>
           <button className={`nav-link ${activeTab === 'video' ? 'active' : ''}`} onClick={() => setActiveTab('video')}>Batch Video Inspection</button>
+          <button className={`nav-link ${activeTab === 'line' ? 'active' : ''}`} onClick={() => setActiveTab('line')}>Line Automation</button>
         </div>
         <div className="sys-status">
           <div className="mode-toggle" role="group" aria-label="Inference mode"
@@ -469,7 +535,7 @@ function App() {
                 ))}
               </div>
             </div>
-          ) : (
+          ) : activeTab === 'video' ? (
             <div className="video-analysis" style={{ padding: 4 }}>
               <div className="upload-hero">
                 <h2>Batch Video Inspection</h2>
@@ -584,6 +650,100 @@ function App() {
                   </div>
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="line-automation" style={{ padding: 4, maxWidth: 680 }}>
+              {/* Connection + live status */}
+              <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: 16, marginBottom: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 10 }}>CONVEYOR CONTROLLER</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input value={lineUrl} onChange={(e) => setLineUrl(e.target.value)} placeholder="http://192.168.1.50 (ESP32 IP)"
+                    style={{ flex: 1, minWidth: 220, padding: '8px 10px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: 14 }} />
+                  <button onClick={connectLine} disabled={lineBusy}
+                    style={{ padding: '8px 16px', borderRadius: 6, border: 0, background: '#2563eb', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+                    {lineBusy ? '…' : 'Connect'}
+                  </button>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999,
+                    color: lineStat.connected ? '#4ade80' : '#f87171',
+                    background: lineStat.connected ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)' }}>
+                    {lineStat.connected ? '● Online' : (lineStat.configured ? '● Offline' : '○ Not set')}
+                  </span>
+                </div>
+                {lineStat.connected && (
+                  <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    {[['State', (lineStat.status || '—') + (lineStat.reason ? ` (${lineStat.reason})` : '')],
+                      ['Batch', `${lineStat.batch ?? 0} / ${lineStat.total ?? 0}`],
+                      ['Position', `${(lineStat.pos_m ?? 0).toFixed ? lineStat.pos_m.toFixed(2) : lineStat.pos_m} m`],
+                      ['Calibration', `${lineStat.mm_per_rev ?? '—'} mm/rev`]].map(([k, v]) => (
+                      <div key={k} style={{ background: '#1e293b', borderRadius: 8, padding: '8px 12px', minWidth: 110 }}>
+                        <label style={{ fontSize: 11, color: '#64748b' }}>{k}</label>
+                        <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: 14 }}>{String(v)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {lineStat.status === 'stopped' && lineStat.reason === 'defect' && (
+                  <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.15)', border: '1px solid #7f1d1d', color: '#fca5a5', fontWeight: 700 }}>
+                    ⛔ DEFECT DETECTED — conveyor stopped automatically
+                    <button onClick={lineStart} style={{ marginLeft: 12, padding: '4px 12px', borderRadius: 6, border: 0, background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Resume</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Calibration */}
+              <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: 16, marginBottom: 14, opacity: lineStat.connected ? 1 : 0.5 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>1 · CALIBRATE BELT TRAVEL</div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+                  Jog the belt a known number of revolutions, measure how far the fabric actually moved, and save. Stored on the board — done once.
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Revolutions
+                    <input type="number" step="1" min="1" value={calRevs} onChange={(e) => setCalRevs(e.target.value)}
+                      style={{ width: 70, marginLeft: 6, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} /></label>
+                  <button onClick={lineJog} disabled={!lineStat.connected}
+                    style={{ padding: '8px 14px', borderRadius: 6, border: 0, background: '#0ea5e9', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>▷ Jog</button>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Measured travel (m)
+                    <input type="number" step="0.001" value={calMeasured} onChange={(e) => setCalMeasured(e.target.value)} placeholder="e.g. 0.377"
+                      style={{ width: 100, marginLeft: 6, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} /></label>
+                  <button onClick={lineCalibrate} disabled={!lineStat.connected}
+                    style={{ padding: '8px 14px', borderRadius: 6, border: 0, background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Save calibration</button>
+                </div>
+              </div>
+
+              {/* Auto batch recording */}
+              <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: 16, marginBottom: 14, opacity: lineStat.connected ? 1 : 0.5 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>2 · AUTO BATCH RECORDING</div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+                  The belt advances one cloth length, pauses so the batch is captured, then repeats for ⌊line ÷ cloth⌋ batches.
+                </div>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Cloth length (m)
+                    <input type="number" step="0.1" value={clothLen} onChange={(e) => setClothLen(e.target.value)}
+                      style={{ width: 80, marginLeft: 6, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} /></label>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Line length (m)
+                    <input type="number" step="0.1" value={lineLen} onChange={(e) => setLineLen(e.target.value)}
+                      style={{ width: 80, marginLeft: 6, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} /></label>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Speed (m/min)
+                    <input type="number" step="0.1" value={motorSpeed} onChange={(e) => setMotorSpeed(e.target.value)}
+                      style={{ width: 80, marginLeft: 6, padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} /></label>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>≈ {Math.max(0, Math.floor(Number(lineLen) / Math.max(0.01, Number(clothLen))))} batches</span>
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+                  <button onClick={lineAuto} disabled={!lineStat.connected}
+                    style={{ padding: '10px 18px', borderRadius: 8, border: 0, background: '#2563eb', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>▶ Start Auto Recording</button>
+                  <button onClick={lineStart} disabled={!lineStat.connected}
+                    style={{ padding: '10px 16px', borderRadius: 8, border: 0, background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Run</button>
+                  <button onClick={lineStop} disabled={!lineStat.connected}
+                    style={{ padding: '10px 16px', borderRadius: 8, border: 0, background: '#dc2626', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>■ Stop</button>
+                </div>
+              </div>
+
+              {lineMsg && (
+                <div style={{ fontSize: 13, color: '#cbd5e1', padding: '8px 12px', background: '#1e293b', borderRadius: 8 }}>{lineMsg}</div>
+              )}
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 10 }}>
+                Live-stream defects stop the belt automatically once the controller URL is set here.
+              </div>
             </div>
           )}
         </div>

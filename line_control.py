@@ -1,62 +1,146 @@
 """Assembly-line motor control bridge.
 
-When the inference backend flags a defect on the live stream, the conveyor motor
-must stop. The motor is driven by an Arduino behind an ESP32 Wi-Fi board that
-exposes a tiny HTTP API (see firmware/). This module sends the stop signal to
-that ESP32.
+The conveyor motor is driven by an Arduino behind an ESP32 Wi-Fi board that
+exposes a small HTTP API (see firmware/). This module is the single place the
+backend talks to that board, used for two things:
 
-It is intentionally best-effort and non-blocking:
-  * disabled unless the ESP32 base URL is configured (env ``UFV_ESP32_URL``),
-    e.g. ``UFV_ESP32_URL=http://192.168.1.50``;
-  * the HTTP call runs on a daemon thread so websocket frame handling is never
-    blocked by line latency or a missing board;
-  * a cooldown prevents every defective frame from re-sending the stop.
+  1. Stop-on-defect: when the live stream flags a defect, send STOP.
+  2. Dashboard control: the /api/line/* endpoints proxy calibration, manual
+     run/stop and auto-batch commands through here so the browser only ever
+     talks to the backend (one origin, no CORS surprises).
 
-Endpoints used (provided by conveyor_esp32.ino):
-  GET <base>/defect   -> tells the Arduino to halt (reason = defect)
-  GET <base>/start    -> resume
+Design goals: never block frame handling, never crash inference, and always
+give the dashboard a clear connected/not-connected answer.
+
+  * The board URL is set from the dashboard (persisted to line_config.json) and
+    falls back to the env var ``UFV_ESP32_URL``.
+  * All calls are short-timeout and failures degrade to ``{"connected": false}``.
+
+ESP32 endpoints used: /status /start /stop /defect /auto /config /jog /cal
 """
 import os
+import json
 import time
 import threading
+import urllib.parse
 import urllib.request
 
-# Base URL of the ESP32 conveyor controller, e.g. "http://192.168.1.50".
-ESP32_URL = os.environ.get("UFV_ESP32_URL", "").rstrip("/")
-# Minimum seconds between two stop signals (a defect usually spans many frames).
-STOP_COOLDOWN_S = float(os.environ.get("UFV_ESP32_COOLDOWN", "5"))
-# HTTP timeout so a slow/absent board cannot stall the thread for long.
-_TIMEOUT_S = 2.0
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CFG_PATH = os.path.join(_HERE, "line_config.json")
 
-_last_stop = 0.0
+_TIMEOUT_S = 2.5
+STOP_COOLDOWN_S = float(os.environ.get("UFV_ESP32_COOLDOWN", "5"))
+
 _lock = threading.Lock()
+_last_stop = 0.0
+
+
+def _load_url() -> str:
+    try:
+        with open(_CFG_PATH) as f:
+            return (json.load(f).get("esp32_url") or "").rstrip("/")
+    except Exception:
+        return os.environ.get("UFV_ESP32_URL", "").rstrip("/")
+
+
+_url = _load_url()
+
+
+def get_url() -> str:
+    return _url
+
+
+def set_url(url: str) -> str:
+    """Persist the ESP32 base URL (e.g. http://192.168.1.50). Returns normalized."""
+    global _url
+    url = (url or "").strip().rstrip("/")
+    if url and not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    _url = url
+    try:
+        with open(_CFG_PATH, "w") as f:
+            json.dump({"esp32_url": _url}, f)
+    except Exception:
+        pass
+    return _url
 
 
 def enabled() -> bool:
-    """True if a conveyor controller URL is configured."""
-    return bool(ESP32_URL)
+    return bool(_url)
 
 
-def _fire(path: str):
-    url = f"{ESP32_URL}/{path.lstrip('/')}"
+def request(path: str, params: dict = None, timeout: float = _TIMEOUT_S):
+    """GET <url>/<path>[?params]. Returns (ok, text). Never raises."""
+    if not _url:
+        return False, "no board configured"
+    q = ("?" + urllib.parse.urlencode(params)) if params else ""
+    full = f"{_url}/{path.lstrip('/')}{q}"
     try:
-        urllib.request.urlopen(url, timeout=_TIMEOUT_S).read()
+        with urllib.request.urlopen(full, timeout=timeout) as r:
+            return True, r.read().decode("utf-8", "replace")
+    except Exception as e:
+        return False, str(e)
+
+
+def _send_async(path: str, params: dict = None):
+    threading.Thread(target=request, args=(path, params), daemon=True).start()
+
+
+def status() -> dict:
+    """Current line status for the dashboard. Always returns a dict."""
+    if not _url:
+        return {"configured": False, "connected": False, "url": ""}
+    ok, body = request("status")
+    if not ok:
+        return {"configured": True, "connected": False, "url": _url, "error": body}
+    try:
+        data = json.loads(body)
     except Exception:
-        # Best-effort: a missing board or network hiccup must not crash inference.
-        pass
+        data = {}
+    data.update({"configured": True, "connected": True, "url": _url})
+    return data
 
 
-def _send_async(path: str):
-    threading.Thread(target=_fire, args=(path,), daemon=True).start()
+# ---- command helpers used by the /api/line/* proxy endpoints ----
+def start():
+    return request("start")
 
 
+def stop():
+    return request("stop")
+
+
+def resume():
+    return request("start")
+
+
+def jog(revs: float):
+    """Move an exact number of motor revolutions for calibration measurement."""
+    return request("jog", {"revs": revs})
+
+
+def calibrate(measured_m: float, revs: float):
+    """Given the belt travel (metres) measured over ``revs`` revolutions, compute
+    and store mm-per-revolution on the Arduino. Returns (ok, mm_per_rev)."""
+    revs = float(revs) or 1.0
+    mm_per_rev = float(measured_m) * 1000.0 / revs
+    ok, _ = request("cal", {"mmrev": round(mm_per_rev, 3)})
+    return ok, round(mm_per_rev, 3)
+
+
+def auto(cloth_m: float, line_m: float, speed_m_min: float):
+    """Configure and start an automatic batch run (units: metres, m/min)."""
+    ok, _ = request("config", {"cloth": cloth_m, "line": line_m, "speed": speed_m_min})
+    if not ok:
+        return False, "config failed"
+    return request("auto")
+
+
+# ---- stop-on-defect (called from the live /ws/stream loop) ----
 def notify(is_anomalous: bool):
-    """Call once per processed live frame with its defect verdict.
-
-    On a defect (subject to the cooldown) this sends STOP to the conveyor. No-op
-    when the controller URL is not configured.
-    """
-    if not is_anomalous or not ESP32_URL:
+    """Send STOP to the conveyor on a defect, subject to a cooldown. No-op when
+    no board is configured. Non-blocking and exception-safe."""
+    if not is_anomalous or not _url:
         return
     global _last_stop
     now = time.time()
@@ -65,9 +149,3 @@ def notify(is_anomalous: bool):
             return
         _last_stop = now
     _send_async("defect")
-
-
-def resume():
-    """Manually resume the conveyor (e.g. after an operator clears a defect)."""
-    if ESP32_URL:
-        _send_async("start")
