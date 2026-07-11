@@ -37,6 +37,9 @@ function App() {
   const [clothLen, setClothLen] = useState(1.0);
   const [lineLen, setLineLen] = useState(5.0);
   const [motorSpeed, setMotorSpeed] = useState(2.0);
+  const [stopMinPct, setStopMinPct] = useState(3);   // stop only on defects bigger than this % of frame
+  const [autoResume, setAutoResume] = useState(0);   // seconds; 0 = manual resume
+  const [autoRecord, setAutoRecord] = useState(false);
 
   const lineApi = useCallback(async (path, body) => {
     try {
@@ -60,8 +63,15 @@ function App() {
     setLineBusy(true); setLineMsg('Connecting…');
     const d = await lineApi('connect', { url: lineUrl });
     setLineStat(d);
+    if (typeof d.stop_min_area === 'number') setStopMinPct(Math.round(d.stop_min_area * 100));
+    if (typeof d.auto_resume_s === 'number') setAutoResume(d.auto_resume_s);
+    if (typeof d.auto_record === 'boolean') setAutoRecord(d.auto_record);
     setLineMsg(d.connected ? '✓ Connected to conveyor controller' : `✗ Not reachable${d.error ? ': ' + d.error : ''}`);
     setLineBusy(false);
+  };
+  const saveLineSettings = async (patch) => {
+    const body = { stop_min_area: Number(stopMinPct) / 100, auto_resume_s: Number(autoResume), auto_record: autoRecord, ...patch };
+    await lineApi('settings', body);
   };
   const lineStart = async () => { setLineMsg('▶ Start sent'); await lineApi('start'); refreshLine(); };
   const lineStop = async () => { setLineMsg('■ Stop sent'); await lineApi('stop'); refreshLine(); };
@@ -738,11 +748,37 @@ function App() {
                 </div>
               </div>
 
+              {/* Automation settings */}
+              <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10, padding: 16, marginBottom: 14, opacity: lineStat.connected ? 1 : 0.5 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 10 }}>3 · AUTOMATION</div>
+                <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Stop only on defects &gt;
+                    <input type="number" step="0.5" min="0" value={stopMinPct} disabled={!lineStat.connected}
+                      onChange={(e) => { setStopMinPct(e.target.value); saveLineSettings({ stop_min_area: Number(e.target.value) / 100 }); }}
+                      style={{ width: 64, margin: '0 6px', padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} />
+                    % of frame</label>
+                  <label style={{ fontSize: 13, color: '#cbd5e1' }}>Auto-resume after
+                    <input type="number" step="1" min="0" value={autoResume} disabled={!lineStat.connected}
+                      onChange={(e) => { setAutoResume(e.target.value); saveLineSettings({ auto_resume_s: Number(e.target.value) }); }}
+                      style={{ width: 64, margin: '0 6px', padding: '6px 8px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0' }} />
+                    s (0 = manual)</label>
+                  <label style={{ fontSize: 13, color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={autoRecord} disabled={!lineStat.connected}
+                      onChange={(e) => { setAutoRecord(e.target.checked); saveLineSettings({ auto_record: e.target.checked }); }} />
+                    Auto-record &amp; inspect each batch
+                  </label>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                  A defect must cover more than {stopMinPct}% of the frame to halt the belt — small specks are logged but do not stop the line.
+                  {autoRecord ? ' Each batch is saved automatically to Batch Video Inspection with a QC report (keep the live camera streaming).' : ''}
+                </div>
+              </div>
+
               {lineMsg && (
                 <div style={{ fontSize: 13, color: '#cbd5e1', padding: '8px 12px', background: '#1e293b', borderRadius: 8 }}>{lineMsg}</div>
               )}
               <div style={{ fontSize: 11, color: '#64748b', marginTop: 10 }}>
-                Live-stream defects stop the belt automatically once the controller URL is set here.
+                Big-defect auto-stop and per-batch auto-record run automatically once the controller URL is set here.
               </div>
             </div>
           )}

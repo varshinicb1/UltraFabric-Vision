@@ -60,6 +60,15 @@ os.makedirs(BATCH_OUT_DIR, exist_ok=True)
 BATCH_HISTORY = []
 TS_COUNTER = {'n': 1}
 
+# Auto-record supervisor: when the conveyor runs an automatic batch cycle, buffer
+# the live annotated frames and, as each batch advances, save it as a full batch
+# inspection (video + QC report) automatically. Best-effort; guarded so it can
+# never break live inference.
+import threading as _threading
+AR = {"active": False, "buffer": [], "params": {}}
+AR_LOCK = _threading.Lock()
+AR_MAX_FRAMES = 4000
+
 app = FastAPI(title="FabricAI Pro Web Engine", version="1.0")
 
 # Enable CORS for the Next.js frontend
@@ -221,7 +230,8 @@ def process_frame(img_bgr, mode=None):
             hmap, config.min_defect_area_frac, config.defect_intensity_frac,
             config.max_defect_coverage_frac, return_coverage=True)
         for b in det:
-            boxes.append({"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"]})
+            boxes.append({"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"],
+                          "area_frac": b.get("area_frac", 0.0)})
             cv2.rectangle(vis, (b["x"], b["y"]), (b["x"] + b["w"], b["y"] + b["h"]), (0, 0, 255), 2)
             cv2.putText(vis, "DEFECT", (b["x"], max(12, b["y"] - 5)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
@@ -489,6 +499,7 @@ def line_start():
 
 @app.post("/api/line/stop")
 def line_stop():
+    AR["active"] = False   # halt auto-recording along with the belt
     ok, msg = line_control.stop()
     return {"ok": ok, "message": msg}
 
@@ -505,14 +516,120 @@ def line_calibrate(body: LineCalibrate):
     ok, mm_per_rev = line_control.calibrate(body.measured_m, body.revs)
     return {"ok": ok, "mm_per_rev": mm_per_rev}
 
+class LineSettings(BaseModel):
+    stop_min_area: float = None   # fraction of frame; a defect must exceed this to stop
+    auto_resume_s: float = None   # seconds; 0 = manual resume only
+    auto_record: bool = None      # auto-record + inspect each batch
+
+@app.post("/api/line/settings")
+def line_settings(body: LineSettings):
+    """Update automation settings (big-defect threshold, auto-resume, auto-record)."""
+    return line_control.set_settings(body.stop_min_area, body.auto_resume_s, body.auto_record)
+
 @app.post("/api/line/auto")
 def line_auto(body: LineAuto):
-    """Configure cloth/line/speed and start the automatic batch run."""
+    """Configure cloth/line/speed and start the automatic batch run. If auto-record
+    is enabled, also begin capturing each batch as a full inspection."""
     if body.cloth <= 0 or body.line < body.cloth or body.speed <= 0:
         return {"ok": False, "message": "need cloth>0, line>=cloth, speed>0"}
     ok, msg = line_control.auto(body.cloth, body.line, body.speed)
     batches = int(body.line // body.cloth)
-    return {"ok": ok, "message": msg, "batches": batches}
+    if ok and line_control.get_settings().get("auto_record"):
+        _ar_start({"batch": "AUTO", "cloth": body.cloth, "segments": 10})
+    return {"ok": ok, "message": msg, "batches": batches, "recording": AR["active"]}
+
+
+# ---- auto-record supervisor (guarded; never raises into the request path) ----
+def _ar_append(score, is_defect, boxes, area, vis_bgr):
+    if not AR["active"]:
+        return
+    try:
+        ok, buf = cv2.imencode('.jpg', vis_bgr)
+        if not ok:
+            return
+        with AR_LOCK:
+            AR["buffer"].append({"score": float(score), "is_defect": bool(is_defect),
+                                 "boxes": boxes, "area": float(area), "jpg": buf.tobytes()})
+            if len(AR["buffer"]) > AR_MAX_FRAMES:
+                AR["buffer"] = AR["buffer"][-AR_MAX_FRAMES:]
+    except Exception:
+        pass
+
+def _ar_finalize(batch_no):
+    with AR_LOCK:
+        frames = AR["buffer"]; AR["buffer"] = []
+    if not frames:
+        print(f"[auto-record] batch {batch_no}: no live frames captured (is the camera streaming?)")
+        return
+    p = AR["params"]; cloth = float(p.get("cloth", 1.0)); segments = int(p.get("segments", 10))
+    label = f"{p.get('batch', 'AUTO')}_b{batch_no}"
+    seq = TS_COUNTER['n']; TS_COUNTER['n'] += 1
+    ann_name = f"{label}_{seq}_annotated.mp4"
+    ann_path = os.path.join(BATCH_OUT_DIR, ann_name)
+    fps, total = 10.0, len(frames)
+    try:
+        first = cv2.imdecode(np.frombuffer(frames[0]["jpg"], np.uint8), cv2.IMREAD_COLOR)
+        H, W = first.shape[:2]
+        vw = cv2.VideoWriter(ann_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (W, H))
+        frames_info = []
+        for idx, fr in enumerate(frames):
+            img = cv2.imdecode(np.frombuffer(fr["jpg"], np.uint8), cv2.IMREAD_COLOR)
+            rec = batch_inspect.frame_record(idx, fr["score"], fr["is_defect"], fr["boxes"],
+                                             fr["area"], fps, total, cloth, segments)
+            frames_info.append(rec)
+            batch_inspect.annotate_frame(img, rec, label, segments)
+            vw.write(img)
+        vw.release()
+        batch_inspect.to_browser_h264(ann_path)
+        report = batch_inspect.build_report(frames_info, label, cloth, segments, fps, total, total,
+                                            DETECTION_THRESHOLD, config.min_defect_area_frac,
+                                            ann_name, DEFAULT_MODE, device)
+        dm = batch_inspect.build_defect_map(frames_info, cloth, segments, label,
+                                            DETECTION_THRESHOLD, report['defect_frames'], total)
+        _, buf = cv2.imencode('.png', dm)
+        report['defect_map'] = "data:image/png;base64," + base64.b64encode(buf).decode('utf-8')
+        report['annotated_video'] = f"/api/batch_video/{ann_name}"
+        report['passed'] = report['defect_frames'] == 0
+        report['seq'] = seq
+        report['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        report['qc_report'] = f"/api/batch_report/{seq}"
+        report['auto'] = True
+        BATCH_HISTORY.insert(0, dict(report))
+        del BATCH_HISTORY[25:]
+        print(f"[auto-record] saved {label}: {report['defect_frames']}/{total} defect frames")
+    except Exception as e:
+        print(f"[auto-record] finalize error (batch {batch_no}): {e}")
+
+def _ar_poller():
+    last_batch = 0
+    while AR["active"]:
+        time.sleep(1.0)
+        try:
+            st = line_control.status()
+            if not st.get("connected"):
+                continue
+            cur = int(st.get("batch", 0) or 0)
+            state = st.get("status", "")
+            if cur >= 1 and last_batch == 0:
+                last_batch = cur
+            elif cur > last_batch and last_batch >= 1:
+                _ar_finalize(last_batch)      # a batch just completed
+                last_batch = cur
+            if state == "done" and last_batch >= 1:
+                _ar_finalize(last_batch)      # final batch
+                break
+        except Exception:
+            continue
+    AR["active"] = False
+
+def _ar_start(params):
+    if AR["active"]:
+        return
+    with AR_LOCK:
+        AR["buffer"] = []
+    AR["params"] = params
+    AR["active"] = True
+    _threading.Thread(target=_ar_poller, daemon=True).start()
 
 @app.websocket("/ws/stream")
 async def stream_endpoint(websocket: WebSocket):
@@ -531,9 +648,13 @@ async def stream_endpoint(websocket: WebSocket):
             if img_bgr is not None:
                 vis, score, is_anomalous, latency, neural_grid, attn_heads, boxes, trace = process_frame(img_bgr, ws_mode)
 
-                # Stop the conveyor motor when a defect is detected (best-effort,
-                # no-op unless UFV_ESP32_URL is configured; see line_control.py).
-                line_control.notify(is_anomalous)
+                # Defect severity = fraction of the frame covered by defect boxes.
+                defect_area = float(sum(b.get("area_frac", 0.0) for b in boxes))
+                # Stop the conveyor only on a BIG defect (best-effort; no-op unless
+                # a board is configured -- see line_control.py). Small specks pass.
+                line_control.notify(is_anomalous, defect_area)
+                # Feed the per-batch auto-recorder (no-op unless a batch is running).
+                _ar_append(score, is_anomalous, boxes, defect_area, vis)
 
                 _, buffer = cv2.imencode('.jpg', vis)
                 out_base64 = base64.b64encode(buffer).decode('utf-8')
